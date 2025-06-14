@@ -31,7 +31,7 @@ from nanokvm.client import (
     NanoKVMError,
     NanoKVMAuthenticationFailure,
 )
-from nanokvm.models import GpioType
+from nanokvm.models import GpioType, HidMode, GetMountedImageRsp, GetCdRomRsp
 
 from .const import (
     ATTR_BUTTON_TYPE,
@@ -280,9 +280,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.hid_mode = await self.client.get_hid_mode()
                 self.oled_info = await self.client.get_oled_info()
                 self.wifi_status = await self.client.get_wifi_status()
-                                
-                self.mounted_image = await self.client.get_mounted_image()
-                self.cdrom_status = await self.client.get_cdrom_status()
+
+                if self.hid_mode.mode == HidMode.HID_ONLY:  # Failsafe to the API throwing errors.
+                    self.mounted_image = GetMountedImageRsp(file="")
+                    self.cdrom_status = GetCdRomRsp(cdrom=0)
+                else:
+                    self.mounted_image = await self.client.get_mounted_image()
+                    self.cdrom_status = await self.client.get_cdrom_status()
 
                 return {
                     "device_info": self.device_info,
