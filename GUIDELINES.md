@@ -38,6 +38,13 @@ The primary goal of this project is to provide a seamless integration for the [S
 
 - The project version is defined in `manifest.json` and should follow semantic versioning (SemVer).
 
+### Error Handling and Reconnection
+
+- The integration should be resilient to the NanoKVM device being temporarily unavailable (e.g., due to a power cycle).
+- The `NanoKVMDataUpdateCoordinator` is responsible for managing the connection and data updates.
+- When a `NanoKVMError` occurs, the coordinator will attempt to re-authenticate with the device and then retry fetching the data. This ensures that the connection can be re-established automatically when the device comes back online.
+- Standard network errors (e.g., `aiohttp.ClientError`, `asyncio.TimeoutError`) are treated as transient, and Home Assistant's DataUpdateCoordinator will handle the retry logic.
+
 ## Continuous Improvement
 
 This `GUIDELINES.md` file is a living document. It should be continuously updated by the AI assistant whenever changes are made to the codebase that introduce new standards, best practices, or important information that should be remembered for future development.

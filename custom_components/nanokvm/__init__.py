@@ -262,52 +262,60 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
 
+    async def _async_fetch_data(self) -> dict[str, Any]:
+        """Fetch all data from the device."""
+        async with async_timeout.timeout(10):
+            # Fetch all the data we need
+            self.device_info = await self.client.get_info()
+            self.hardware_info = await self.client.get_hardware()
+            self.gpio_info = await self.client.get_gpio()
+            self.virtual_device_info = await self.client.get_virtual_device_status()
+            self.ssh_state = await self.client.get_ssh_state()
+            self.mdns_state = await self.client.get_mdns_state()
+            self.hid_mode = await self.client.get_hid_mode()
+            self.oled_info = await self.client.get_oled_info()
+            self.wifi_status = await self.client.get_wifi_status()
+            self.mounted_image = await self.client.get_mounted_image()
+            self.cdrom_status = await self.client.get_cdrom_status()
+
+            return {
+                "device_info": self.device_info,
+                "hardware_info": self.hardware_info,
+                "gpio_info": self.gpio_info,
+                "virtual_device_info": self.virtual_device_info,
+                "ssh_state": self.ssh_state,
+                "mdns_state": self.mdns_state,
+                "hid_mode": self.hid_mode,
+                "oled_info": self.oled_info,
+                "wifi_status": self.wifi_status,
+                "mounted_image": self.mounted_image,
+                "cdrom_status": self.cdrom_status,
+            }
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
         try:
-            # Re-authenticate if needed
+            # Re-authenticate if the token is missing.
             if not self.client.token:
                 await self.client.authenticate(self.username, self.password)
-
-            async with async_timeout.timeout(10):
-                # Fetch all the data we need
-                self.device_info = await self.client.get_info()
-                self.hardware_info = await self.client.get_hardware()
-                self.gpio_info = await self.client.get_gpio()
-                self.virtual_device_info = await self.client.get_virtual_device_status()
-                self.ssh_state = await self.client.get_ssh_state()
-                self.mdns_state = await self.client.get_mdns_state()
-                self.hid_mode = await self.client.get_hid_mode()
-                self.oled_info = await self.client.get_oled_info()
-                self.wifi_status = await self.client.get_wifi_status()
-                                
-                self.mounted_image = await self.client.get_mounted_image()
-                self.cdrom_status = await self.client.get_cdrom_status()
-
-                return {
-                    "device_info": self.device_info,
-                    "hardware_info": self.hardware_info,
-                    "gpio_info": self.gpio_info,
-                    "virtual_device_info": self.virtual_device_info,
-                    "ssh_state": self.ssh_state,
-                    "mdns_state": self.mdns_state,
-                    "hid_mode": self.hid_mode,
-                    "oled_info": self.oled_info,
-                    "wifi_status": self.wifi_status,
-                    "mounted_image": self.mounted_image,
-                    "cdrom_status": self.cdrom_status,
-                }
-        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
-            # If we get an authentication error, try to re-authenticate
-            if isinstance(err, NanoKVMAuthenticationFailure):
-                try:
-                    await self.client.authenticate(self.username, self.password)
-                    # Try the update again
-                    return await self._async_update_data()
-                except Exception as auth_err:
-                    raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
             
+            return await self._async_fetch_data()
+
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            # Treat these as transient network errors. The coordinator will retry.
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+            
+        except NanoKVMError as err:
+            # For any NanoKVM-specific errors, assume the session might be stale.
+            # This can happen if the device was restarted.
+            # Try to re-authenticate and fetch again.
+            _LOGGER.debug("NanoKVM error, re-authenticating: %s", err)
+            try:
+                await self.client.authenticate(self.username, self.password)
+                return await self._async_fetch_data()
+            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as retry_err:
+                # If re-authentication or the subsequent fetch fails, raise UpdateFailed.
+                raise UpdateFailed(f"Failed to update after re-authentication: {retry_err}") from retry_err
 
 
 class NanoKVMEntity(CoordinatorEntity):
