@@ -302,16 +302,15 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                     "cdrom_status": self.cdrom_status,
                 }
         except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
-            # If we get an authentication error, try to re-authenticate
-            if isinstance(err, NanoKVMAuthenticationFailure):
-                try:
-                    await self.client.authenticate(self.username, self.password)
-                    # Try the update again
-                    return await self._async_update_data()
-                except Exception as auth_err:
-                    raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
-            
-            raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+            _LOGGER.debug("Error communicating with NanoKVM: %s", err)
+            # Attempt to re-authenticate on any error
+            try:
+                _LOGGER.debug("Attempting to re-authenticate with NanoKVM")
+                await self.client.authenticate(self.username, self.password)
+                # Try the update again
+                return await self._async_update_data()
+            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
+                raise UpdateFailed(f"Failed to re-authenticate with NanoKVM: {auth_err}") from auth_err
 
 
 class NanoKVMEntity(CoordinatorEntity):
