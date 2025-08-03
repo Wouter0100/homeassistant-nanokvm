@@ -17,8 +17,6 @@ from homeassistant.components import zeroconf
 
 from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVMError
 
-from cachetools import TTLCache
-
 from .const import DEFAULT_USERNAME, DEFAULT_PASSWORD, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
