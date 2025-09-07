@@ -285,7 +285,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     self.mounted_image = await self.client.get_mounted_image()
                 except NanoKVMApiError as err:
-                    _LOGGER.error(
+                    _LOGGER.debug(
                         "Failed to get mounted image, retrieving default value.%s", err
                     )
                     self.mounted_image = GetMountedImageRsp(file="")
@@ -293,7 +293,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     self.cdrom_status = await self.client.get_cdrom_status()
                 except NanoKVMApiError as err:
-                    _LOGGER.error(
+                    _LOGGER.debug(
                         "Failed to get CD-ROM status, retrieving default value. %s", err
                     )
                     self.cdrom_status = GetCdRomRsp(cdrom=0)
