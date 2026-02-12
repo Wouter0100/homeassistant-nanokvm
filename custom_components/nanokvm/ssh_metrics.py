@@ -72,8 +72,8 @@ class SSHMetricsCollector:
         stats = {"total": None, "used_percent": None}
         if "MemTotal" in mem_data:
             stats["total"] = round(mem_data["MemTotal"] / 1024, 2)
-            if stats["total"] > 0 and "MemFree" in mem_data:
-                memory_free = round(mem_data["MemFree"] / 1024, 2)
+            if stats["total"] > 0 and "MemAvailable" in mem_data:
+                memory_free = round(mem_data["MemAvailable"] / 1024, 2)
                 memory_used = round(stats["total"] - memory_free, 2)
                 stats["used_percent"] = round((memory_used / stats["total"]) * 100, 2)
         return stats
@@ -85,9 +85,7 @@ class SSHMetricsCollector:
         stats = {"total": None, "used_percent": None}
         if len(lines) >= 2:
             parts = lines[1].split()
-            if len(parts) >= 4:
+            if len(parts) >= 5:
                 stats["total"] = round(int(parts[1]) / 1024, 2)
-                storage_used = round(int(parts[2]) / 1024, 2)
-                if stats["total"] > 0:
-                    stats["used_percent"] = round((storage_used / stats["total"]) * 100, 2)
+                stats["used_percent"] = float(parts[4].rstrip("%"))
         return stats
