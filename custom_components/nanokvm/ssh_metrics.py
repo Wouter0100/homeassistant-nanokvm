@@ -14,6 +14,7 @@ class SSHMetricsSnapshot:
     """Snapshot of metrics collected via SSH."""
 
     uptime: datetime.datetime | None
+    cpu_temperature: float | None
     memory_total: float | None
     memory_used_percent: float | None
     storage_total: float | None
@@ -43,11 +44,13 @@ class SSHMetricsCollector:
             await self._client.authenticate(self._password)
 
         uptime = await self._fetch_uptime()
+        cpu_temperature = await self._fetch_cpu_temperature()
         memory_stats = await self._fetch_memory()
         storage_stats = await self._fetch_storage()
 
         return SSHMetricsSnapshot(
             uptime=uptime,
+            cpu_temperature=cpu_temperature,
             memory_total=memory_stats.get("total"),
             memory_used_percent=memory_stats.get("used_percent"),
             storage_total=storage_stats.get("total"),
@@ -72,11 +75,19 @@ class SSHMetricsCollector:
         stats = {"total": None, "used_percent": None}
         if "MemTotal" in mem_data:
             stats["total"] = round(mem_data["MemTotal"] / 1024, 2)
-            if stats["total"] > 0 and "MemFree" in mem_data:
-                memory_free = round(mem_data["MemFree"] / 1024, 2)
+            if stats["total"] > 0 and "MemAvailable" in mem_data:
+                memory_free = round(mem_data["MemAvailable"] / 1024, 2)
                 memory_used = round(stats["total"] - memory_free, 2)
                 stats["used_percent"] = round((memory_used / stats["total"]) * 100, 2)
         return stats
+
+    async def _fetch_cpu_temperature(self) -> float | None:
+        """Fetch CPU temperature in Celsius via SSH."""
+        output = await self._client.run_command("cat /sys/class/thermal/thermal_zone0/temp")
+        value = float(output.strip())
+        if value > 1000:
+            value /= 1000
+        return round(value, 1)
 
     async def _fetch_storage(self) -> dict[str, float | None]:
         """Fetch storage stats via SSH."""
@@ -85,9 +96,7 @@ class SSHMetricsCollector:
         stats = {"total": None, "used_percent": None}
         if len(lines) >= 2:
             parts = lines[1].split()
-            if len(parts) >= 4:
+            if len(parts) >= 5:
                 stats["total"] = round(int(parts[1]) / 1024, 2)
-                storage_used = round(int(parts[2]) / 1024, 2)
-                if stats["total"] > 0:
-                    stats["used_percent"] = round((storage_used / stats["total"]) * 100, 2)
+                stats["used_percent"] = float(parts[4].rstrip("%"))
         return stats
