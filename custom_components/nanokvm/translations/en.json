@@ -102,9 +102,9 @@
       "tailscale_state": {
         "name": "Tailscale",
         "state": {
-          "notInstall": "Not installed",
-          "notRunning": "Not running",
-          "notLogin": "Not logged in",
+          "not_install": "Not installed",
+          "not_running": "Not running",
+          "not_login": "Not logged in",
           "stopped": "Stopped",
           "running": "Running"
         },
