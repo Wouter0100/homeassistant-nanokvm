@@ -14,6 +14,7 @@ class SSHMetricsSnapshot:
     """Snapshot of metrics collected via SSH."""
 
     uptime: datetime.datetime | None
+    cpu_temperature: float | None
     memory_total: float | None
     memory_used_percent: float | None
     storage_total: float | None
@@ -43,11 +44,13 @@ class SSHMetricsCollector:
             await self._client.authenticate(self._password)
 
         uptime = await self._fetch_uptime()
+        cpu_temperature = await self._fetch_cpu_temperature()
         memory_stats = await self._fetch_memory()
         storage_stats = await self._fetch_storage()
 
         return SSHMetricsSnapshot(
             uptime=uptime,
+            cpu_temperature=cpu_temperature,
             memory_total=memory_stats.get("total"),
             memory_used_percent=memory_stats.get("used_percent"),
             storage_total=storage_stats.get("total"),
@@ -77,6 +80,14 @@ class SSHMetricsCollector:
                 memory_used = round(stats["total"] - memory_free, 2)
                 stats["used_percent"] = round((memory_used / stats["total"]) * 100, 2)
         return stats
+
+    async def _fetch_cpu_temperature(self) -> float | None:
+        """Fetch CPU temperature in Celsius via SSH."""
+        output = await self._client.run_command("cat /sys/class/thermal/thermal_zone0/temp")
+        value = float(output.strip())
+        if value > 1000:
+            value /= 1000
+        return round(value, 1)
 
     async def _fetch_storage(self) -> dict[str, float | None]:
         """Fetch storage stats via SSH."""

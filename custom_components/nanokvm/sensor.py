@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
@@ -96,6 +96,18 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda coordinator: coordinator.uptime,
         available_fn=lambda coordinator: coordinator.uptime is not None,
+    ),
+    NanoKVMSensorEntityDescription(
+        key="cpu_temperature",
+        name="CPU Temperature",
+        translation_key="cpu_temperature",
+        icon="mdi:thermometer",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.cpu_temperature,
+        available_fn=lambda coordinator: coordinator.cpu_temperature is not None,
     ),
     NanoKVMSensorEntityDescription(
         key="memory_used_percent",

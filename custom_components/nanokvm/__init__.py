@@ -287,6 +287,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.swap_size = None
         self.tailscale_status = None
         self.uptime = None
+        self.cpu_temperature = None
         self.memory_total = None
         self.memory_used_percent = None
         self.storage_total = None
@@ -415,10 +416,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             metrics = await self.ssh_metrics_collector.collect()
             self.uptime = metrics.uptime
+            self.cpu_temperature = metrics.cpu_temperature
             self.memory_total = metrics.memory_total
             self.memory_used_percent = metrics.memory_used_percent
             self.storage_total = metrics.storage_total
             self.storage_used_percent = metrics.storage_used_percent
+            _LOGGER.debug(
+                "SSH coordinator metrics updated: uptime=%s cpu_temperature=%s memory_used_percent=%s storage_used_percent=%s",
+                self.uptime,
+                self.cpu_temperature,
+                self.memory_used_percent,
+                self.storage_used_percent,
+            )
 
             if not self.ssh_sensors_created:
                 _LOGGER.debug("SSH enabled, signaling to create SSH sensors")
@@ -428,12 +437,14 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.debug("Failed to fetch data via SSH: %s", err)
             self.uptime = None
+            self.cpu_temperature = None
             if self.ssh_metrics_collector:
                 await self.ssh_metrics_collector.disconnect()
 
     async def _async_clear_ssh_data(self) -> None:
         """Clear SSH data and disconnect client."""
         self.uptime = None
+        self.cpu_temperature = None
         self.memory_total = None
         self.memory_used_percent = None
         self.storage_total = None

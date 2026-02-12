@@ -123,6 +123,9 @@
       "uptime": {
         "name": "Temps de fonctionnement"
       },
+      "cpu_temperature": {
+        "name": "Température CPU"
+      },
       "memory_used_percent": {
         "name": "Mémoire utilisée",
         "state_attributes": {
