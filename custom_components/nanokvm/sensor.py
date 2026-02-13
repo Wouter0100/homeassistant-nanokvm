@@ -32,20 +32,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-_TAILSCALE_STATE_MAP: dict[str, str] = {
-    "notInstall": "not_install",
-    "notRunning": "not_running",
-    "notLogin": "not_login",
-}
-
-
-def _normalize_tailscale_state(raw_state: str | None) -> str | None:
-    """Map API tailscale states to translation-safe keys."""
-    if raw_state is None:
-        return None
-    return _TAILSCALE_STATE_MAP.get(raw_state, raw_state)
-
-
 @dataclass
 class NanoKVMSensorEntityDescription(SensorEntityDescription):
     """Describes NanoKVM sensor entity."""
@@ -87,9 +73,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         translation_key="tailscale_state",
         icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: _normalize_tailscale_state(
-            coordinator.tailscale_status.state.value
-        ),
+        value_fn=lambda coordinator: coordinator.tailscale_status.state.value,
         should_create_fn=lambda coordinator: coordinator.tailscale_status is not None,
         available_fn=lambda coordinator: coordinator.tailscale_status is not None,
         attributes_fn=lambda coordinator: {
