@@ -13,7 +13,6 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.components import zeroconf
 
 from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVMError
@@ -63,8 +62,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def add_device(self, mdns, data) -> FlowResult:
         _LOGGER.debug(
-            "Adding device with mDNS name %s as unique_id",
-            mdns
+            "Adding device - mDNS: %s, Host: %s, Static: %s",
+            mdns,
+            data[CONF_HOST],
+            data.get(CONF_USE_STATIC_HOST, False)
         )
         await self.async_set_unique_id(mdns)
         self._abort_if_unique_id_configured()
@@ -76,6 +77,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.info(
                 "Device configured to use static host %s (mDNS discovery disabled)",
                 data[CONF_HOST]
+            )
+        else:
+            _LOGGER.info(
+                "Device configured to allow mDNS discovery (host: %s, mDNS: %s)",
+                data[CONF_HOST],
+                mdns
             )
         
         return self.async_create_entry(title=INTEGRATION_TITLE, data=data)
@@ -192,11 +199,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # If so, don't update or reconfigure it via mDNS
         for entry in self._async_current_entries():
             if entry.unique_id == self.unique_id and entry.data.get(CONF_USE_STATIC_HOST, False):
-                _LOGGER.debug(
-                    "Device %s is configured with static host, ignoring mDNS discovery",
-                    discovery_info.hostname
+                _LOGGER.info(
+                    "Device %s is configured with static host (%s), ignoring mDNS discovery",
+                    discovery_info.hostname,
+                    entry.data[CONF_HOST]
                 )
                 return self.async_abort(reason="already_configured")
+        
+        _LOGGER.debug(
+            "mDNS discovery proceeding for %s - no static host configuration found",
+            discovery_info.hostname
+        )
         
         self._abort_if_unique_id_configured()
 
