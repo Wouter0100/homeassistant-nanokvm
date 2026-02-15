@@ -488,7 +488,7 @@ class NanoKVMEntity(CoordinatorEntity):
         if name is not None:
             self._attr_name = name
         self._attr_unique_id = f"{coordinator.device_info.device_key}_{unique_id_suffix}"
-        _LOGGER.debug("Setting unique_id for %s: %s", name, self._attr_unique_id)
+        _LOGGER.debug("Created entity %s with unique_id: %s", unique_id_suffix, self._attr_unique_id)
 
     @property
     def device_info(self) -> dict[str, Any]:
