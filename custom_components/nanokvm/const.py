@@ -7,6 +7,7 @@ INTEGRATION_TITLE = "NanoKVM"
 CONF_HOST = "host"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
+CONF_USE_STATIC_HOST = "use_static_host"
 
 # Default values
 DEFAULT_USERNAME = "admin"
