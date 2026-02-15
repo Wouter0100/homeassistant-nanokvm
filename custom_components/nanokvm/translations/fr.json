@@ -5,7 +5,8 @@
         "title": "Se connecter à Sipeed NanoKVM",
         "description": "Configurer une intégration Sipeed NanoKVM.",
         "data": {
-          "host": "Hôte (adresse IP ou nom d'hôte)"
+          "host": "Hôte (adresse IP ou nom d'hôte)",
+          "use_static_host": "Utiliser uniquement l'hôte statique (désactiver la découverte mDNS)"
         }
       },
       "auth": {
