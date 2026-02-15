@@ -314,7 +314,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
         use_static_host = self.config_entry.data.get(CONF_USE_STATIC_HOST, False)
-        current_host = self.client.host
+        current_host = self.config_entry.data[CONF_HOST]
         
         _LOGGER.debug(
             "Fetching data from NanoKVM at %s (static_host: %s)",
