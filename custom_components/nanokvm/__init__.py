@@ -48,6 +48,7 @@ from .const import (
     ATTR_TEXT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
+    CONF_USE_STATIC_HOST,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     INTEGRATION_TITLE,
@@ -108,6 +109,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
+    use_static_host = entry.data.get(CONF_USE_STATIC_HOST, False)
+
+    _LOGGER.info(
+        "Setting up NanoKVM integration for %s (static_host: %s)",
+        host,
+        use_static_host
+    )
 
     client = NanoKVMClient(normalize_host(host))
 
@@ -305,6 +313,15 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
+        use_static_host = self.config_entry.data.get(CONF_USE_STATIC_HOST, False)
+        current_host = self.config_entry.data[CONF_HOST]
+        
+        _LOGGER.debug(
+            "Fetching data from NanoKVM at %s (static_host: %s)",
+            current_host,
+            use_static_host
+        )
+        
         try:
             async with self.client, async_timeout.timeout(10):
                 # Re-authenticate if needed
@@ -471,7 +488,7 @@ class NanoKVMEntity(CoordinatorEntity):
         if name is not None:
             self._attr_name = name
         self._attr_unique_id = f"{coordinator.device_info.device_key}_{unique_id_suffix}"
-        _LOGGER.debug("Setting unique_id for %s: %s", name, self._attr_unique_id)
+        _LOGGER.debug("Created entity %s with unique_id: %s", unique_id_suffix, self._attr_unique_id)
 
     @property
     def device_info(self) -> dict[str, Any]:

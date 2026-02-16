@@ -5,7 +5,8 @@
         "title": "Conectar ao Sipeed NanoKVM",
         "description": "Configurar a integração com o Sipeed NanoKVM.",
         "data": {
-          "host": "Host (endereço IP ou nome do host)"
+          "host": "Host (endereço IP ou nome do host)",
+          "use_static_host": "Usar apenas host estático (desativar descoberta mDNS)"
         }
       },
       "auth": {
