@@ -74,12 +74,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_USE_STATIC_HOST] = False
         
         if data[CONF_USE_STATIC_HOST]:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Device configured to use static host %s (mDNS discovery disabled)",
                 data[CONF_HOST]
             )
         else:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Device configured to allow mDNS discovery (host: %s, mDNS: %s)",
                 data[CONF_HOST],
                 mdns
@@ -199,7 +199,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # If so, don't update or reconfigure it via mDNS
         for entry in self._async_current_entries():
             if entry.unique_id == self.unique_id and entry.data.get(CONF_USE_STATIC_HOST, False):
-                _LOGGER.info(
+                _LOGGER.debug(
                     "Device %s is configured with static host (%s), ignoring mDNS discovery",
                     discovery_info.hostname,
                     entry.data[CONF_HOST]
