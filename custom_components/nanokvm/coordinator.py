@@ -21,7 +21,7 @@ from nanokvm.client import (
     NanoKVMClient,
     NanoKVMError,
 )
-from nanokvm.models import GetCdRomRsp, GetMountedImageRsp, HidMode
+from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, HidMode
 
 from .const import CONF_USE_STATIC_HOST, DEFAULT_SCAN_INTERVAL, DOMAIN, SIGNAL_NEW_SSH_SENSORS
 from .ssh_metrics import SSHMetricsCollector
@@ -40,7 +40,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         client: NanoKVMClient,
         username: str,
         password: str,
-        device_info: Any,
+        device_info: GetInfoRsp,
     ) -> None:
         """Initialize the coordinator."""
         self.config_entry = config_entry
@@ -109,8 +109,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                         and err.status == 401
                     )
                 )
-                and hasattr(self.device_info, "application")
-                and self.device_info.application != "Unknown"
             ):
                 host = normalize_host(self.config_entry.data[CONF_HOST])
                 new_client = NanoKVMClient(host)

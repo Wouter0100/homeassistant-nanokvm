@@ -44,7 +44,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     client = NanoKVMClient(normalize_host(host))
 
-    device_info = None
     try:
         async with client:
             await client.authenticate(username, password)
@@ -52,17 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except NanoKVMAuthenticationFailure as err:
         _LOGGER.error("Authentication failed: %s", err)
         return False
-    except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError):
-        device_info = type(
-            "DeviceInfo",
-            (),
-            {
-                "device_key": f"{host}_{username}",
-                "mdns": host,
-                "application": "Unknown",
-                "image": "Unknown",
-            },
-        )()
+    except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError) as err:
+        _LOGGER.error("Failed to fetch initial device info: %s", err)
+        return False
 
     coordinator = NanoKVMDataUpdateCoordinator(
         hass,
