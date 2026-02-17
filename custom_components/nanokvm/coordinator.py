@@ -96,66 +96,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 if not self.client.token:
                     await self.client.authenticate(self.username, self.password)
 
-                self.device_info = await self.client.get_info()
-                self.hostname_info = await self.client.get_hostname()
-                self.hardware_info = await self.client.get_hardware()
-                self.gpio_info = await self.client.get_gpio()
-                self.virtual_device_info = await self.client.get_virtual_device_status()
-                self.ssh_state = await self.client.get_ssh_state()
-                self.mdns_state = await self.client.get_mdns_state()
-                self.hid_mode = await self.client.get_hid_mode()
-                self.oled_info = await self.client.get_oled_info()
-                self.wifi_status = await self.client.get_wifi_status()
-                self.application_version_info = await self.client.get_application_version()
-                self.hdmi_state = await self.client.get_hdmi_state()
-                self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
-                self.swap_size = await self.client.get_swap_size()
-                self.tailscale_status = await self.client.get_tailscale_status()
-
-                if self.hid_mode.mode == HidMode.NORMAL:
-                    try:
-                        self.mounted_image = await self.client.get_mounted_image()
-                    except NanoKVMApiError as err:
-                        _LOGGER.debug(
-                            "Failed to get mounted image, retrieving default value: %s", err
-                        )
-                        self.mounted_image = GetMountedImageRsp(file="")
-
-                    try:
-                        self.cdrom_status = await self.client.get_cdrom_status()
-                    except NanoKVMApiError as err:
-                        _LOGGER.debug(
-                            "Failed to get CD-ROM status, retrieving default value: %s", err
-                        )
-                        self.cdrom_status = GetCdRomRsp(cdrom=0)
-                else:
-                    self.mounted_image = GetMountedImageRsp(file="")
-                    self.cdrom_status = GetCdRomRsp(cdrom=0)
-
-                if self.ssh_state and self.ssh_state.enabled:
-                    await self._async_update_ssh_data()
-                else:
-                    await self._async_clear_ssh_data()
-
-                return {
-                    "device_info": self.device_info,
-                    "hardware_info": self.hardware_info,
-                    "gpio_info": self.gpio_info,
-                    "virtual_device_info": self.virtual_device_info,
-                    "ssh_state": self.ssh_state,
-                    "mdns_state": self.mdns_state,
-                    "hid_mode": self.hid_mode,
-                    "oled_info": self.oled_info,
-                    "wifi_status": self.wifi_status,
-                    "application_version_info": self.application_version_info,
-                    "mounted_image": self.mounted_image,
-                    "cdrom_status": self.cdrom_status,
-                    "mouse_jiggler_state": self.mouse_jiggler_state,
-                    "hdmi_state": self.hdmi_state,
-                    "swap_size": self.swap_size,
-                    "tailscale_status": self.tailscale_status,
-                    "hostname_info": self.hostname_info,
-                }
+                await self._async_fetch_core_data()
+                await self._async_fetch_storage_data()
+                await self._async_refresh_ssh_data()
+                return self._build_update_data()
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if (
                 (
@@ -188,6 +132,75 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
         except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+
+    async def _async_fetch_core_data(self) -> None:
+        """Fetch required API data used by entities."""
+        self.device_info = await self.client.get_info()
+        self.hostname_info = await self.client.get_hostname()
+        self.hardware_info = await self.client.get_hardware()
+        self.gpio_info = await self.client.get_gpio()
+        self.virtual_device_info = await self.client.get_virtual_device_status()
+        self.ssh_state = await self.client.get_ssh_state()
+        self.mdns_state = await self.client.get_mdns_state()
+        self.hid_mode = await self.client.get_hid_mode()
+        self.oled_info = await self.client.get_oled_info()
+        self.wifi_status = await self.client.get_wifi_status()
+        self.application_version_info = await self.client.get_application_version()
+        self.hdmi_state = await self.client.get_hdmi_state()
+        self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
+        self.swap_size = await self.client.get_swap_size()
+        self.tailscale_status = await self.client.get_tailscale_status()
+
+    async def _async_fetch_storage_data(self) -> None:
+        """Fetch storage-specific state (mounted image and CD-ROM mode)."""
+        if self.hid_mode.mode == HidMode.NORMAL:
+            try:
+                self.mounted_image = await self.client.get_mounted_image()
+            except NanoKVMApiError as err:
+                _LOGGER.debug(
+                    "Failed to get mounted image, retrieving default value: %s", err
+                )
+                self.mounted_image = GetMountedImageRsp(file="")
+
+            try:
+                self.cdrom_status = await self.client.get_cdrom_status()
+            except NanoKVMApiError as err:
+                _LOGGER.debug(
+                    "Failed to get CD-ROM status, retrieving default value: %s", err
+                )
+                self.cdrom_status = GetCdRomRsp(cdrom=0)
+        else:
+            self.mounted_image = GetMountedImageRsp(file="")
+            self.cdrom_status = GetCdRomRsp(cdrom=0)
+
+    async def _async_refresh_ssh_data(self) -> None:
+        """Fetch or clear SSH metrics depending on SSH state."""
+        if self.ssh_state and self.ssh_state.enabled:
+            await self._async_update_ssh_data()
+        else:
+            await self._async_clear_ssh_data()
+
+    def _build_update_data(self) -> dict[str, Any]:
+        """Build coordinator data payload for entities."""
+        return {
+            "device_info": self.device_info,
+            "hardware_info": self.hardware_info,
+            "gpio_info": self.gpio_info,
+            "virtual_device_info": self.virtual_device_info,
+            "ssh_state": self.ssh_state,
+            "mdns_state": self.mdns_state,
+            "hid_mode": self.hid_mode,
+            "oled_info": self.oled_info,
+            "wifi_status": self.wifi_status,
+            "application_version_info": self.application_version_info,
+            "mounted_image": self.mounted_image,
+            "cdrom_status": self.cdrom_status,
+            "mouse_jiggler_state": self.mouse_jiggler_state,
+            "hdmi_state": self.hdmi_state,
+            "swap_size": self.swap_size,
+            "tailscale_status": self.tailscale_status,
+            "hostname_info": self.hostname_info,
+        }
 
     async def _async_update_ssh_data(self) -> None:
         """Fetch data via SSH."""
