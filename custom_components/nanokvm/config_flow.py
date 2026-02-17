@@ -18,26 +18,9 @@ from homeassistant.components import zeroconf
 from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVMError
 
 from .const import DEFAULT_USERNAME, DEFAULT_PASSWORD, DOMAIN, INTEGRATION_TITLE, CONF_USE_STATIC_HOST
+from .utils import normalize_host, normalize_mdns
 
 _LOGGER = logging.getLogger(__name__)
-
-def normalize_host(host: str) -> str:
-    # Ensure the host has a scheme
-    if not host.startswith(("http://", "https://")):
-        host = f"http://{host}"
-    
-    # Ensure the host ends with /api/
-    if not host.endswith("/api/"):
-        host = f"{host}api/" if host.endswith("/") else f"{host}/api/"
-    
-    return host
-
-def normalize_mdns(mdns: str) -> str:
-    # Ensure all mDNS host names end with a dot
-    if not mdns.endswith("."):
-        mdns = f"{mdns}."
-
-    return mdns
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> str:
     """Validate the user input allows us to connect.

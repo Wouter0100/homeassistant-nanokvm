@@ -19,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
 from .const import (
     DOMAIN,
     ICON_DISK,
@@ -29,6 +29,7 @@ from .const import (
     ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
 )
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +45,45 @@ def _normalize_tailscale_state(raw_state: str | None) -> str | None:
     if raw_state is None:
         return None
     return _TAILSCALE_STATE_MAP.get(raw_state, raw_state)
+
+
+def _firmware_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
+    """Return firmware sensor attributes."""
+    return {
+        "image_version": coordinator.device_info.image,
+        "hardware_version": coordinator.hardware_info.version.value,
+        "wifi_supported": coordinator.wifi_status.supported,
+        "oled_present": coordinator.oled_info.exist,
+    }
+
+
+def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether there is a mounted image."""
+    return coordinator.mounted_image.file != ""
+
+
+def _tailscale_state_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
+    """Return normalized tailscale state value."""
+    return _normalize_tailscale_state(coordinator.tailscale_status.state.value)
+
+
+def _tailscale_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
+    """Return tailscale sensor attributes."""
+    return {
+        "name": coordinator.tailscale_status.name,
+        "ip": coordinator.tailscale_status.ip,
+        "account": coordinator.tailscale_status.account,
+    }
+
+
+def _memory_total_attribute(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
+    """Return memory total attribute when available."""
+    return {"total_mb": coordinator.memory_total} if coordinator.memory_total is not None else {}
+
+
+def _storage_total_attribute(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
+    """Return storage total attribute when available."""
+    return {"total_mb": coordinator.storage_total} if coordinator.storage_total is not None else {}
 
 
 @dataclass
@@ -64,12 +104,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         icon=ICON_KVM,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: coordinator.device_info.application,
-        attributes_fn=lambda coordinator: {
-            "image_version": coordinator.device_info.image,
-            "hardware_version": coordinator.hardware_info.version.value,
-            "wifi_supported": coordinator.wifi_status.supported,
-            "oled_present": coordinator.oled_info.exist,
-        },
+        attributes_fn=_firmware_attributes,
     ),
     NanoKVMSensorEntityDescription(
         key="mounted_image",
@@ -78,8 +113,8 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         icon=ICON_IMAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: coordinator.mounted_image.file,
-        should_create_fn=lambda coordinator: coordinator.mounted_image.file != "",
-        available_fn=lambda coordinator: coordinator.mounted_image.file != "",
+        should_create_fn=_has_mounted_image,
+        available_fn=_has_mounted_image,
     ),
     NanoKVMSensorEntityDescription(
         key="tailscale_state",
@@ -87,18 +122,8 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         translation_key="tailscale_state",
         icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: _normalize_tailscale_state(
-            coordinator.tailscale_status.state.value
-        ),
-        should_create_fn=lambda coordinator: coordinator.tailscale_status is not None,
-        available_fn=lambda coordinator: coordinator.tailscale_status is not None,
-        attributes_fn=lambda coordinator: {
-            "name": coordinator.tailscale_status.name,
-            "ip": coordinator.tailscale_status.ip,
-            "account": coordinator.tailscale_status.account,
-        }
-        if coordinator.tailscale_status is not None
-        else {},
+        value_fn=_tailscale_state_value,
+        attributes_fn=_tailscale_attributes,
     ),
 )
 
@@ -135,11 +160,7 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: coordinator.memory_used_percent,
         available_fn=lambda coordinator: coordinator.memory_used_percent is not None,
-        attributes_fn=lambda coordinator: (
-            {"total_mb": coordinator.memory_total}
-            if coordinator.memory_total is not None
-            else {}
-        ),
+        attributes_fn=_memory_total_attribute,
     ),
     NanoKVMSensorEntityDescription(
         key="storage_used_percent",
@@ -151,11 +172,7 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: coordinator.storage_used_percent,
         available_fn=lambda coordinator: coordinator.storage_used_percent is not None,
-        attributes_fn=lambda coordinator: (
-            {"total_mb": coordinator.storage_total}
-            if coordinator.storage_total is not None
-            else {}
-        ),
+        attributes_fn=_storage_total_attribute,
     ),
 )
 

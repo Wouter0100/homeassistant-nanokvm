@@ -14,13 +14,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from nanokvm.models import HWVersion
+
 from .const import (
     DOMAIN,
     ICON_DISK,
     ICON_POWER,
     ICON_WIFI,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 
 @dataclass
@@ -46,7 +49,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         icon=ICON_DISK,
         value_fn=lambda coordinator: coordinator.gpio_info.hdd,
         # HDD LED is only valid for Alpha hardware
-        available_fn=lambda coordinator: coordinator.hardware_info.version.value == "Alpha",
+        available_fn=lambda coordinator: coordinator.hardware_info.version == HWVersion.ALPHA,
     ),
     NanoKVMBinarySensorEntityDescription(
         key="wifi_connected",
@@ -77,7 +80,6 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
             coordinator.application_version_info.current
             != coordinator.application_version_info.latest
         ),
-        available_fn=lambda coordinator: coordinator.application_version_info is not None,
     ),
 )
 

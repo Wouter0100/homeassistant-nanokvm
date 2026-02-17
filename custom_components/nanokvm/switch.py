@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from nanokvm.models import VirtualDevice, GpioType
+from nanokvm.models import GpioType, HWVersion, VirtualDevice
 
 from .const import (
     DOMAIN,
@@ -24,7 +24,8 @@ from .const import (
     ICON_SSH,
     ICON_POWER,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,19 @@ class NanoKVMSwitchEntityDescription(SwitchEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     turn_on_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
     turn_off_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
+
+
+def _hdmi_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return HDMI switch state."""
+    return coordinator.hdmi_state.enabled if coordinator.hdmi_state else False
+
+
+def _hdmi_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether HDMI controls are available."""
+    return (
+        coordinator.hdmi_state is not None
+        and coordinator.hardware_info.version == HWVersion.PCIE
+    )
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
@@ -95,13 +109,10 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="hdmi",
         icon=ICON_HDMI,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.hdmi_state.enabled if coordinator.hdmi_state else False,
+        value_fn=_hdmi_value,
         turn_on_fn=lambda coordinator: coordinator.client.enable_hdmi(),
         turn_off_fn=lambda coordinator: coordinator.client.disable_hdmi(),
-        available_fn=lambda coordinator: (
-            coordinator.hdmi_state is not None and
-            coordinator.hardware_info.version.value == "PCIE"
-        ),
+        available_fn=_hdmi_available,
     ),
 )
 

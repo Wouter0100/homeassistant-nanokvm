@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -11,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from nanokvm.models import GpioType
+from nanokvm.models import GpioType, HWVersion
 
 from .const import (
     DOMAIN,
@@ -20,7 +19,8 @@ from .const import (
     ICON_POWER,
     ICON_RESET,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 
 @dataclass
@@ -60,7 +60,7 @@ BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
         icon=ICON_KVM,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hdmi(),
-        available_fn=lambda coordinator: coordinator.hardware_info.version.value == "PCIE",
+        available_fn=lambda coordinator: coordinator.hardware_info.version == HWVersion.PCIE,
     ),
     NanoKVMButtonEntityDescription(
         key="reset_hid",

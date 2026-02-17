@@ -21,7 +21,8 @@ from .const import (
     ICON_MOUSE_JIGGLER,
     ICON_OLED,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +71,53 @@ SWAP_OPTIONS = {
 SWAP_VALUES = {v: k for k, v in SWAP_OPTIONS.items()}
 
 
+def _hid_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
+    """Return current HID mode option."""
+    return HID_MODE_VALUES.get(coordinator.hid_mode.mode, HID_MODE_VALUES[HidMode.NORMAL])
+
+
+def _set_hid_mode(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+    """Set HID mode from option key."""
+    return coordinator.client.set_hid_mode(HID_MODE_OPTIONS.get(option, HidMode.NORMAL))
+
+
+def _mouse_jiggler_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
+    """Return current mouse jiggler option."""
+    if not coordinator.mouse_jiggler_state or not coordinator.mouse_jiggler_state.enabled:
+        return "disable"
+    return f"{coordinator.mouse_jiggler_state.mode.value}_mode"
+
+
+def _set_mouse_jiggler_mode(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+    """Set mouse jiggler state from option key."""
+    return coordinator.client.set_mouse_jiggler_state(
+        MOUSE_JIGGLER_OPTIONS.get(option) is not None,
+        MOUSE_JIGGLER_OPTIONS.get(option) or MouseJigglerMode.ABSOLUTE,
+    )
+
+
+def _oled_sleep_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
+    """Return current OLED sleep option."""
+    return OLED_SLEEP_VALUES.get(coordinator.oled_info.sleep, f"{coordinator.oled_info.sleep}_sec")
+
+
+def _set_oled_sleep(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+    """Set OLED sleep timeout from option key."""
+    return coordinator.client.set_oled_sleep(OLED_SLEEP_OPTIONS.get(option, 0))
+
+
+def _swap_size_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
+    """Return current swap size option."""
+    if coordinator.swap_size is None:
+        return "disable"
+    return SWAP_VALUES.get(coordinator.swap_size, f"{coordinator.swap_size}_mb")
+
+
+def _set_swap_size(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+    """Set swap size from option key."""
+    return coordinator.client.set_swap_size(SWAP_OPTIONS.get(option, 0))
+
+
 SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     NanoKVMSelectEntityDescription(
         key="hid_mode",
@@ -78,12 +126,8 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         icon=ICON_HID,
         entity_category=EntityCategory.CONFIG,
         options=list(HID_MODE_OPTIONS.keys()),
-        value_fn=lambda coordinator: HID_MODE_VALUES.get(
-            coordinator.hid_mode.mode, "normal"
-        ),
-        select_option_fn=lambda coordinator, option: coordinator.client.set_hid_mode(
-            HID_MODE_OPTIONS.get(option, HidMode.NORMAL)
-        ),
+        value_fn=_hid_mode_value,
+        select_option_fn=_set_hid_mode,
         available_fn=lambda coordinator: coordinator.hid_mode is not None,
     ),
     NanoKVMSelectEntityDescription(
@@ -93,16 +137,8 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         icon=ICON_MOUSE_JIGGLER,
         entity_category=EntityCategory.CONFIG,
         options=list(MOUSE_JIGGLER_OPTIONS.keys()),
-        value_fn=lambda coordinator: (
-            "disable"
-            if not coordinator.mouse_jiggler_state
-            or not coordinator.mouse_jiggler_state.enabled
-            else f"{coordinator.mouse_jiggler_state.mode.value}_mode"
-        ),
-        select_option_fn=lambda coordinator, option: coordinator.client.set_mouse_jiggler_state(
-            MOUSE_JIGGLER_OPTIONS.get(option) is not None,
-            MOUSE_JIGGLER_OPTIONS.get(option) or MouseJigglerMode.ABSOLUTE,
-        ),
+        value_fn=_mouse_jiggler_mode_value,
+        select_option_fn=_set_mouse_jiggler_mode,
         available_fn=lambda coordinator: coordinator.mouse_jiggler_state is not None,
     ),
     NanoKVMSelectEntityDescription(
@@ -112,12 +148,8 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         icon=ICON_OLED,
         entity_category=EntityCategory.CONFIG,
         options=list(OLED_SLEEP_OPTIONS.keys()),
-        value_fn=lambda coordinator: OLED_SLEEP_VALUES.get(
-            coordinator.oled_info.sleep, f"{coordinator.oled_info.sleep}_sec"
-        ),
-        select_option_fn=lambda coordinator, option: coordinator.client.set_oled_sleep(
-            OLED_SLEEP_OPTIONS.get(option, 0)
-        ),
+        value_fn=_oled_sleep_value,
+        select_option_fn=_set_oled_sleep,
         available_fn=lambda coordinator: coordinator.oled_info.exist,
     ),
     NanoKVMSelectEntityDescription(
@@ -127,14 +159,8 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         icon=ICON_DISK,
         entity_category=EntityCategory.CONFIG,
         options=list(SWAP_OPTIONS.keys()),
-        value_fn=lambda coordinator: (
-            SWAP_VALUES.get(coordinator.swap_size, f"{coordinator.swap_size}_mb")
-            if coordinator.swap_size is not None
-            else "disable"
-        ),
-        select_option_fn=lambda coordinator, option: coordinator.client.set_swap_size(
-            SWAP_OPTIONS.get(option, 0)
-        ),
+        value_fn=_swap_size_value,
+        select_option_fn=_set_swap_size,
         available_fn=lambda coordinator: coordinator.swap_size is not None,
     ),
 )
