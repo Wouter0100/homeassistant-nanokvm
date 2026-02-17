@@ -20,7 +20,8 @@ from .const import (
     ICON_POWER,
     ICON_WIFI,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 
 @dataclass

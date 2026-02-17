@@ -19,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
 from .const import (
     DOMAIN,
     ICON_DISK,
@@ -29,6 +29,7 @@ from .const import (
     ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
 )
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 

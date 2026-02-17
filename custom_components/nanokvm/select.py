@@ -21,7 +21,8 @@ from .const import (
     ICON_MOUSE_JIGGLER,
     ICON_OLED,
 )
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
+from .coordinator import NanoKVMDataUpdateCoordinator
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -17,10 +17,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from nanokvm.utils import obfuscate_password
 from webrtc_models import RTCIceCandidateInit
 
-from . import NanoKVMDataUpdateCoordinator, NanoKVMEntity
 from .camera_webrtc import NanoKVMWebRTCManager
+from .coordinator import NanoKVMDataUpdateCoordinator
 from .config_flow import normalize_host
 from .const import DOMAIN, ICON_HDMI
+from .entity import NanoKVMEntity
 
 _LOGGER = logging.getLogger(__name__)
 
