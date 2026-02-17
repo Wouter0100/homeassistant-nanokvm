@@ -52,7 +52,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> str:
                 aiohttp.ClientError, NanoKVMError) as err:
             raise CannotConnect from err
 
-    return normalize_mdns(device_info.mdns)
+    return str(device_info.device_key)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -60,14 +60,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def add_device(self, mdns, data) -> FlowResult:
+    async def add_device(self, device_key: str, data: dict[str, Any]) -> FlowResult:
         _LOGGER.debug(
-            "Adding device - mDNS: %s, Host: %s, Static: %s",
-            mdns,
+            "Adding device - key: %s, Host: %s, Static: %s",
+            device_key,
             data[CONF_HOST],
             data.get(CONF_USE_STATIC_HOST, False)
         )
-        await self.async_set_unique_id(mdns)
+        await self.async_set_unique_id(device_key)
         self._abort_if_unique_id_configured()
         
         if CONF_USE_STATIC_HOST not in data:
@@ -80,9 +80,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         else:
             _LOGGER.debug(
-                "Device configured to allow mDNS discovery (host: %s, mDNS: %s)",
+                "Device configured to allow mDNS discovery (host: %s, key: %s)",
                 data[CONF_HOST],
-                mdns
+                device_key
             )
         
         return self.async_create_entry(title=INTEGRATION_TITLE, data=data)
@@ -133,7 +133,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                mdns = await validate_input(self.hass, self.data)
+                device_key = await validate_input(self.hass, self.data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -146,7 +146,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return await self.add_device(mdns, self.data)
+                return await self.add_device(device_key, self.data)
             
         return self.async_show_form(
             step_id="confirm",
@@ -171,7 +171,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = self.data | user_input
 
             try:
-                mdns = await validate_input(self.hass, data)
+                device_key = await validate_input(self.hass, data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -180,7 +180,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return await self.add_device(mdns, data)
+                return await self.add_device(device_key, data)
 
         return self.async_show_form(
             step_id="auth", 
@@ -192,37 +192,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: zeroconf.ZeroconfServiceInfo
     ) -> FlowResult:
         """Handle zeroconf discovery."""
-        
-        await self.async_set_unique_id(normalize_mdns(discovery_info.hostname))
-        
-        # Check if this device is already configured with a static host preference
-        # If so, don't update or reconfigure it via mDNS
-        for entry in self._async_current_entries():
-            if entry.unique_id == self.unique_id and entry.data.get(CONF_USE_STATIC_HOST, False):
-                _LOGGER.debug(
-                    "Device %s is configured with static host (%s), ignoring mDNS discovery",
-                    discovery_info.hostname,
-                    entry.data[CONF_HOST]
-                )
-                return self.async_abort(reason="already_configured")
-        
-        _LOGGER.debug(
-            "mDNS discovery proceeding for %s - no static host configuration found",
-            discovery_info.hostname
-        )
-        
-        self._abort_if_unique_id_configured()
+        legacy_mdns_id = normalize_mdns(discovery_info.hostname)
 
         async with NanoKVMClient(normalize_host(discovery_info.hostname)) as client:
             try:
                 await client.authenticate(DEFAULT_USERNAME, DEFAULT_PASSWORD)
-                await client.get_info()
+                device_info = await client.get_info()
+                device_key = str(device_info.device_key)
+
+                await self.async_set_unique_id(device_key)
+
+                # Support both old (mDNS) and new (device_key) unique IDs.
+                for entry in self._async_current_entries():
+                    if entry.unique_id not in (device_key, legacy_mdns_id):
+                        continue
+                    if entry.data.get(CONF_USE_STATIC_HOST, False):
+                        _LOGGER.debug(
+                            "Device %s is configured with static host (%s), ignoring discovery",
+                            discovery_info.hostname,
+                            entry.data[CONF_HOST],
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "Device %s is already configured, ignoring discovery",
+                            discovery_info.hostname,
+                        )
+                    return self.async_abort(reason="already_configured")
+
+                self._abort_if_unique_id_configured()
 
                 _LOGGER.debug(
                     "Discovered NanoKVM device at %s that uses default credentials.",
                     discovery_info.hostname,
                 )
             except NanoKVMAuthenticationFailure:
+                # Fall back to legacy ID path when authentication blocks device_key retrieval.
+                await self.async_set_unique_id(legacy_mdns_id)
+                self._abort_if_unique_id_configured()
                 _LOGGER.debug(
                     "Discovered NanoKVM device at %s requires user credentials.",
                     discovery_info.hostname,
