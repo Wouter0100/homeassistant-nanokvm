@@ -66,7 +66,9 @@ WAKE_ON_LAN_SCHEMA = vol.Schema(
 SET_MOUSE_JIGGLER_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ENABLED): bool,
-        vol.Optional(ATTR_MODE, default="absolute"): vol.In(["absolute", "relative"]),
+        vol.Optional(
+            ATTR_MODE, default=MouseJigglerMode.ABSOLUTE.value
+        ): vol.In([MouseJigglerMode.ABSOLUTE.value, MouseJigglerMode.RELATIVE.value]),
     }
 )
 
@@ -156,7 +158,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         mode_str = call.data[ATTR_MODE]
         mode = (
             MouseJigglerMode.ABSOLUTE
-            if mode_str == "absolute"
+            if mode_str == MouseJigglerMode.ABSOLUTE.value
             else MouseJigglerMode.RELATIVE
         )
 

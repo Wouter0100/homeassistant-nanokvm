@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from nanokvm.models import VirtualDevice, GpioType
+from nanokvm.models import GpioType, HWVersion, VirtualDevice
 
 from .const import (
     DOMAIN,
@@ -101,7 +101,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         turn_off_fn=lambda coordinator: coordinator.client.disable_hdmi(),
         available_fn=lambda coordinator: (
             coordinator.hdmi_state is not None and
-            coordinator.hardware_info.version.value == "PCIE"
+            coordinator.hardware_info.version == HWVersion.PCIE
         ),
     ),
 )
