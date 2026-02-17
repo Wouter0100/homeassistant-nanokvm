@@ -78,7 +78,6 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
             coordinator.application_version_info.current
             != coordinator.application_version_info.latest
         ),
-        available_fn=lambda coordinator: coordinator.application_version_info is not None,
     ),
 )
 

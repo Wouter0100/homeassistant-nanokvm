@@ -91,15 +91,11 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         value_fn=lambda coordinator: _normalize_tailscale_state(
             coordinator.tailscale_status.state.value
         ),
-        should_create_fn=lambda coordinator: coordinator.tailscale_status is not None,
-        available_fn=lambda coordinator: coordinator.tailscale_status is not None,
         attributes_fn=lambda coordinator: {
             "name": coordinator.tailscale_status.name,
             "ip": coordinator.tailscale_status.ip,
             "account": coordinator.tailscale_status.account,
-        }
-        if coordinator.tailscale_status is not None
-        else {},
+        },
     ),
 )
 

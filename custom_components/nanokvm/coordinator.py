@@ -21,7 +21,7 @@ from nanokvm.client import (
     NanoKVMClient,
     NanoKVMError,
 )
-from nanokvm.models import GetCdRomRsp, GetMountedImageRsp
+from nanokvm.models import GetCdRomRsp, GetMountedImageRsp, HidMode
 
 from .const import CONF_USE_STATIC_HOST, DEFAULT_SCAN_INTERVAL, DOMAIN, SIGNAL_NEW_SSH_SENSORS
 from .ssh_metrics import SSHMetricsCollector
@@ -106,19 +106,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.hid_mode = await self.client.get_hid_mode()
                 self.oled_info = await self.client.get_oled_info()
                 self.wifi_status = await self.client.get_wifi_status()
-                try:
-                    self.application_version_info = await self.client.get_application_version()
-                except (NanoKVMApiError, aiohttp.ClientResponseError):
-                    self.application_version_info = None
+                self.application_version_info = await self.client.get_application_version()
                 self.hdmi_state = await self.client.get_hdmi_state()
                 self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
                 self.swap_size = await self.client.get_swap_size()
-                try:
-                    self.tailscale_status = await self.client.get_tailscale_status()
-                except (NanoKVMApiError, aiohttp.ClientResponseError):
-                    self.tailscale_status = None
+                self.tailscale_status = await self.client.get_tailscale_status()
 
-                if self.hid_mode.mode == "normal":
+                if self.hid_mode.mode == HidMode.NORMAL:
                     try:
                         self.mounted_image = await self.client.get_mounted_image()
                     except NanoKVMApiError as err:
