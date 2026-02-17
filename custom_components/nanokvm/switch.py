@@ -40,6 +40,19 @@ class NanoKVMSwitchEntityDescription(SwitchEntityDescription):
     turn_off_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
 
 
+def _hdmi_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return HDMI switch state."""
+    return coordinator.hdmi_state.enabled if coordinator.hdmi_state else False
+
+
+def _hdmi_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether HDMI controls are available."""
+    return (
+        coordinator.hdmi_state is not None
+        and coordinator.hardware_info.version == HWVersion.PCIE
+    )
+
+
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     NanoKVMSwitchEntityDescription(
         key="ssh",
@@ -96,13 +109,10 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="hdmi",
         icon=ICON_HDMI,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.hdmi_state.enabled if coordinator.hdmi_state else False,
+        value_fn=_hdmi_value,
         turn_on_fn=lambda coordinator: coordinator.client.enable_hdmi(),
         turn_off_fn=lambda coordinator: coordinator.client.disable_hdmi(),
-        available_fn=lambda coordinator: (
-            coordinator.hdmi_state is not None and
-            coordinator.hardware_info.version == HWVersion.PCIE
-        ),
+        available_fn=_hdmi_available,
     ),
 )
 
