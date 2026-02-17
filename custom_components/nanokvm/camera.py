@@ -19,9 +19,9 @@ from webrtc_models import RTCIceCandidateInit
 
 from .camera_webrtc import NanoKVMWebRTCManager
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .config_flow import normalize_host
 from .const import DOMAIN, ICON_HDMI
 from .entity import NanoKVMEntity
+from .utils import normalize_host
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -12,10 +12,10 @@ from homeassistant.core import HomeAssistant
 
 from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVMError
 
-from .config_flow import normalize_host
 from .const import CONF_USE_STATIC_HOST, DOMAIN
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .services import async_register_services, async_unregister_services
+from .utils import normalize_host
 
 _LOGGER = logging.getLogger(__name__)
 

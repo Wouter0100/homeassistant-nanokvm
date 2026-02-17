@@ -23,9 +23,9 @@ from nanokvm.client import (
 )
 from nanokvm.models import GetCdRomRsp, GetMountedImageRsp
 
-from .config_flow import normalize_host
 from .const import CONF_USE_STATIC_HOST, DEFAULT_SCAN_INTERVAL, DOMAIN, SIGNAL_NEW_SSH_SENSORS
 from .ssh_metrics import SSHMetricsCollector
+from .utils import extract_ssh_host, normalize_host
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -198,12 +198,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_ssh_data(self) -> None:
         """Fetch data via SSH."""
         if not self.ssh_metrics_collector:
-            host = (
-                self.config_entry.data[CONF_HOST]
-                .replace("/api/", "")
-                .replace("http://", "")
-                .replace("https://", "")
-            )
+            host = extract_ssh_host(self.config_entry.data[CONF_HOST])
             self.ssh_metrics_collector = SSHMetricsCollector(host=host, password=self.password)
 
         try:
