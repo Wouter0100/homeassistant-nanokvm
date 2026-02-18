@@ -1,126 +1,98 @@
 # Sipeed NanoKVM Integration for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![HACS][badge-hacs]][link-hacs]
+[![GitHub Release][badge-release]][link-release]
+[![GitHub Commit Activity][badge-commit-activity]][link-commits]
+[![HACS Validation][badge-hacs-validation]][link-hacs-validation]
+[![Hassfest][badge-hassfest]][link-hassfest]
 
-This integration allows you to control and monitor your [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM) device from Home Assistant. This
-project was created by the use of a LLM (Google Gemini) using Cline, as an experiment.
+Control and monitor a [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM)
+from Home Assistant.
+This project started as an experiment built with an LLM (Google Gemini)
+using Cline.
 
-## Features
+## What You Get
 
-- Monitor device status (power LED, HDD LED, etc.)
-- Control virtual devices (network, disk)
-- Toggle system settings (SSH, mDNS)
-- Push hardware buttons (power, reset)
-- Paste text via HID keyboard simulation
-- Control HID mode and OLED display settings
-- Monitor and control mounted images
-- Monitor SSH-based diagnostics (uptime, memory, storage)
-- Monitor Tailscale status
-- Adjust swap size
-- Check if an application update is available
-- Mouse jiggler control with multiple modes
-- HDMI output control for PCI-E versions
+| Area | Capabilities |
+| --- | --- |
+| Power and hardware | Power/reset actions, status LEDs, HDMI toggle (PCI-E) |
+| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size |
+| Virtual devices | Virtual network and virtual disk switches |
+| Monitoring | Firmware/app version, mounted image, Tailscale, Wi-Fi |
+| SSH diagnostics | Uptime, CPU temp, memory/storage usage when SSH is enabled |
+| Camera | HDMI camera stream support |
 
 ## Installation
 
-### HACS (Recommended)
+### HACS (recommended)
 
-1. Make sure you have [HACS](https://hacs.xyz/) installed
-2. Add this repository as a custom repository in HACS:
-   - Go to HACS > Integrations
-   - Click the three dots in the top right corner
-   - Select "Custom repositories"
-   - Add the URL `https://github.com/Wouter0100/homeassistant-nanokvm`
-   - Select "Integration" as the category
-   - Click "Add"
-3. Search for "Sipeed NanoKVM" in HACS and install it
-4. Restart Home Assistant
+1. Ensure [HACS](https://hacs.xyz/) is installed.
+2. In HACS, add this repository as a custom integration repository:
+   - `https://github.com/Wouter0100/homeassistant-nanokvm`
+3. Install **Sipeed NanoKVM** from HACS.
+4. Restart Home Assistant.
 
-### Manual Installation
+### Manual
 
-1. Download the latest release from the [releases page](https://github.com/Wouter0100/homeassistant-nanokvm/releases)
-2. Extract the `nanokvm` folder from the archive
-3. Copy the folder to your Home Assistant's `custom_components` directory
-4. Restart Home Assistant
+1. Download the latest release from
+   [releases](https://github.com/Wouter0100/homeassistant-nanokvm/releases).
+2. Copy the `nanokvm` folder to
+   `<config>/custom_components/nanokvm`.
+3. Restart Home Assistant.
 
 ## Configuration
 
-1. Go to Settings > Devices & Services
-2. Click "Add Integration"
-3. Search for "Sipeed NanoKVM"
-4. Enter your NanoKVM's IP address or hostname, username, and password
+Add the integration from **Settings -> Devices & Services -> Add Integration**.
+
+| Option | Description |
+| --- | --- |
+| Host | IP/hostname of NanoKVM |
+| Username / Password | NanoKVM credentials (defaults may be prompted first) |
+| Use static host only | Disables mDNS-based host updates after setup |
+
+Notes:
+
+- Zeroconf discovery is supported.
+- Unique ID is based on NanoKVM `device_key`.
+- HTTPS is currently not supported by this integration.
+  Use `http://` (or plain IP/hostname).
 
 ## Entities
 
-### Binary Sensors
+| Platform | Highlights |
+| --- | --- |
+| Binary sensor | Power LED, HDD LED, Wi-Fi Connected, Update Available |
+| Button | Power/Reset, Reboot, Reset HID/HDMI, Update Application |
+| Camera | HDMI stream camera |
+| Select | HID mode, Mouse Jiggler, OLED timeout, Swap size |
+| Sensor | Firmware, Mounted image, Tailscale, SSH diagnostics |
+| Switch | Power, SSH, mDNS, Virtual network/disk, HDMI output |
 
-- **Power LED**: Shows the state of the power LED
-- **HDD LED**: Shows the state of the HDD LED (Alpha hardware only)
-- **WiFi Connected**: Shows if WiFi is connected
-- **CD-ROM Mode**: Shows if the mounted image is in CD-ROM mode
-- **Update Available**: Shows if a newer application version is available
+Notes:
 
-### Sensors
-
-- **Firmware Version**: Shows the current application version with attributes:
-  - `image_version`
-  - `hardware_version`
-  - `wifi_supported`
-  - `oled_present`
-- **Mounted Image**: Shows the currently mounted image
-- **Tailscale**: Shows Tailscale state with attributes:
-  - `name`
-  - `ip`
-  - `account`
-- **Uptime** (SSH): Device uptime
-- **Memory Used** (SSH): Memory usage percentage (includes `total_mb` attribute)
-- **Storage Used** (SSH): Storage usage percentage (includes `total_mb` attribute)
-
-### Switches
-
-- **Power**: Toggle PC on/off
-- **SSH**: Toggle SSH on/off
-- **mDNS**: Toggle mDNS on/off
-- **Virtual Network**: Toggle virtual network device on/off
-- **Virtual Disk**: Toggle virtual disk device on/off
-- **HDMI Output**: Toggle HDMI output on/off (PCI-E versions only)
-
-### Select Entities
-
-- **HID Mode (Reboot Required)**: Set HID mode (`Normal` or `HID Only`)
-- **Mouse Jiggler Mode**: Control mouse jiggler with three modes:
-  - **Disable**: Turn off mouse jiggler
-  - **Relative Mode**: Move mouse cursor in relative movements
-  - **Absolute Mode**: Move mouse cursor to absolute positions
-- **OLED Sleep Timeout**: Set OLED sleep timeout
-- **Swap Size**: Configure swap size
-
-### Buttons
-
-- **Power Button**: Push the power button
-- **Reset Button**: Push the reset button
-- **Reboot System**: Reboot the NanoKVM device
-- **Reset HDMI**: Reset the HDMI connection (PCI-E versions only)
-- **Reset HID**: Reset the HID subsystem
-- **Update Application**: Update the NanoKVM application
+- HDMI controls are PCI-E only.
+- HDD LED is Alpha-only.
+- SSH diagnostics require SSH enabled on NanoKVM.
 
 ## Services
 
-- **nanokvm.push_button**: Simulate pushing a hardware button
-- **nanokvm.paste_text**: Paste text via HID keyboard simulation
-- **nanokvm.reboot**: Reboot the NanoKVM device
-- **nanokvm.reset_hdmi**: Reset the HDMI connection
-- **nanokvm.reset_hid**: Reset the HID subsystem
-- **nanokvm.wake_on_lan**: Send a Wake-on-LAN packet
-- **nanokvm.set_mouse_jiggler**: Set mouse jiggler mode (disable, relative, absolute)
+All services are under the `nanokvm` domain.
 
-## Example Automations
+| Service | Parameters | Description |
+| --- | --- | --- |
+| `push_button` | `button_type`, `duration` | Simulate a button press |
+| `paste_text` | `text` | Paste ASCII text via HID keyboard |
+| `reboot` | - | Reboot NanoKVM |
+| `reset_hdmi` | - | Reset HDMI subsystem |
+| `reset_hid` | - | Reset HID subsystem |
+| `wake_on_lan` | `mac` | Send Wake-on-LAN packet |
+| `set_mouse_jiggler` | `enabled`, `mode` | Set mouse jiggler state |
 
-### Push Power Button When Home Assistant Starts
+## Example Automation
 
 ```yaml
 automation:
-  - alias: "Push NanoKVM Power Button on HA Start"
+  - alias: "NanoKVM power button on HA start"
     trigger:
       - platform: homeassistant
         event: start
@@ -131,90 +103,43 @@ automation:
           duration: 100
 ```
 
-### Paste Text on Schedule
-
-```yaml
-automation:
-  - alias: "Paste Login Credentials Daily"
-    trigger:
-      - platform: time
-        at: "08:00:00"
-    action:
-      - service: nanokvm.paste_text
-        data:
-          text: "username\npassword\n"
-```
-
-### Enable Mouse Jiggler During Work Hours
-
-```yaml
-automation:
-  - alias: "Enable Mouse Jiggler During Work Hours"
-    trigger:
-      - platform: time
-        at: "09:00:00"
-    action:
-      - service: nanokvm.set_mouse_jiggler
-        data:
-          mode: "relative"
-
-  - alias: "Disable Mouse Jiggler After Work"
-    trigger:
-      - platform: time
-        at: "17:00:00"
-    action:
-      - service: nanokvm.set_mouse_jiggler
-        data:
-          mode: "disable"
-```
-
-### Toggle HDMI Output Based on Presence
-
-```yaml
-automation:
-  - alias: "Turn on HDMI when someone is home"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.someone_home
-        to: "on"
-    action:
-      - service: switch.turn_on
-        target:
-          entity_id: switch.nanokvm_hdmi
-
-  - alias: "Turn off HDMI when nobody is home"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.someone_home
-        to: "off"
-        for: "00:30:00"
-    action:
-      - service: switch.turn_off
-        target:
-          entity_id: switch.nanokvm_hdmi
-```
-
 ## Troubleshooting
 
-- If you can't connect to your NanoKVM device, make sure the IP address/hostname is correct and that the device is reachable from your Home Assistant instance.
-- If authentication fails, verify your username and password.
-- If entities are missing, try restarting Home Assistant.
-- HDMI control is only available on PCI-E versions of the NanoKVM and will automatically be hidden for other hardware versions.
-- SSH-based sensors (uptime, memory, storage) require SSH to be enabled on the NanoKVM.
+| Symptom | Check |
+| --- | --- |
+| Cannot connect | Confirm host/IP, DNS, and network reachability from HA |
+| Authentication fails | Verify NanoKVM credentials |
+| Missing entities | Reload integration or restart HA |
+| No SSH sensors | Enable SSH on NanoKVM |
+| No HDMI controls | HDMI controls only appear on PCI-E hardware |
 
 ## Supported Languages
 
-This integration includes translations for:
+- English (`en`)
+- French (`fr`)
+- Portuguese (Brazil) (`pt-BR`)
 
-- English (en)
-- French (fr)
-- Portuguese (Brazil) (pt-BR)
+## Links
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+- Documentation: <https://github.com/Wouter0100/homeassistant-nanokvm>
+- Issues: <https://github.com/Wouter0100/homeassistant-nanokvm/issues>
+- Python library (`python-nanokvm`):
+  <https://github.com/puddly/python-nanokvm>
+- License: MIT (`LICENSE`)
 
 ## Acknowledgements
 
-- [Sipeed](https://sipeed.com/) for creating the NanoKVM device
-- [puddly](https://github.com/puddly) for creating the python-nanokvm library
+- [Sipeed](https://sipeed.com/) for creating the NanoKVM device.
+- [puddly](https://github.com/puddly) for creating
+  [`python-nanokvm`](https://github.com/puddly/python-nanokvm).
+
+[badge-hacs]: https://img.shields.io/badge/HACS-Custom-orange.svg
+[badge-release]: https://img.shields.io/github/v/release/Wouter0100/homeassistant-nanokvm?display_name=tag&sort=semver
+[badge-commit-activity]: https://img.shields.io/github/commit-activity/m/Wouter0100/homeassistant-nanokvm
+[badge-hacs-validation]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hacs.yaml/badge.svg
+[badge-hassfest]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hassfest.yaml/badge.svg
+[link-hacs]: https://github.com/custom-components/hacs
+[link-release]: https://github.com/Wouter0100/homeassistant-nanokvm/releases/latest
+[link-commits]: https://github.com/Wouter0100/homeassistant-nanokvm/commits/main
+[link-hacs-validation]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hacs.yaml
+[link-hassfest]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hassfest.yaml
