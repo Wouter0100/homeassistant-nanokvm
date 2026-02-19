@@ -27,9 +27,11 @@ using Cline.
 ### HACS (recommended)
 
 1. Ensure [HACS](https://hacs.xyz/) is installed.
-2. In HACS, add this repository as a custom integration repository:
-   - `https://github.com/Wouter0100/homeassistant-nanokvm`
-3. Install **Sipeed NanoKVM** from HACS.
+2. Open this repository directly in your HACS instance:
+
+   [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Wouter0100&repository=homeassistant-nanokvm)
+
+3. Click **Download** in HACS.
 4. Restart Home Assistant.
 
 ### Manual
@@ -133,8 +135,8 @@ automation:
 - [puddly](https://github.com/puddly) for creating
   [`python-nanokvm`](https://github.com/puddly/python-nanokvm).
 
-[badge-hacs]: https://img.shields.io/badge/HACS-Custom-orange.svg
-[badge-release]: https://img.shields.io/github/v/release/Wouter0100/homeassistant-nanokvm?display_name=tag&sort=semver
+[badge-hacs]: https://img.shields.io/badge/HACS-Default-41BDF5.svg
+[badge-release]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FWouter0100%2Fhomeassistant-nanokvm%2Freleases%2Flatest&query=%24.tag_name&label=release
 [badge-commit-activity]: https://img.shields.io/github/commit-activity/m/Wouter0100/homeassistant-nanokvm
 [badge-hacs-validation]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hacs.yaml/badge.svg
 [badge-hassfest]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hassfest.yaml/badge.svg
