@@ -59,9 +59,12 @@ class SSHMetricsCollector:
 
     async def _fetch_uptime(self) -> datetime.datetime | None:
         """Fetch uptime via SSH."""
-        uptime_raw = await self._client.run_command("cat /proc/uptime")
-        uptime_seconds = float(uptime_raw.split()[0])
-        return dt_util.utcnow() - datetime.timedelta(seconds=uptime_seconds)
+        stat_raw = await self._client.run_command("cat /proc/stat")
+        for line in stat_raw.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] == "btime":
+                return dt_util.utc_from_timestamp(int(parts[1]))
+        return None
 
     async def _fetch_memory(self) -> dict[str, float | None]:
         """Fetch memory stats via SSH."""
