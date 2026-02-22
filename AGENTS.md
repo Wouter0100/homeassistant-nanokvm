@@ -28,28 +28,34 @@ The integration follows the standard structure for a Home Assistant
 
 - **`__init__.py`**: Main entry point.
   - **`async_setup_entry`**: Initializes the integration from a config entry.
-    Sets up `NanoKVMDataUpdateCoordinator` and forwards setup to platform files
-    (`binary_sensor`, `switch`, and others).
-  - **`NanoKVMDataUpdateCoordinator`**: Central class that fetches data from
-    the NanoKVM device on an interval. It uses the `nanokvm` client to perform
-    API calls and stores latest state. Calls inside `_async_update_data` are
-    wrapped in `async with self.client:` to ensure client session management.
-  - **Service Registration**: Defines and registers custom services.
-    A generic helper inside `async_setup_entry` is used to reduce boilerplate.
-    It iterates over configured devices, wraps logic in `async with client:`,
-    and centralizes error logging.
-  - **`NanoKVMEntity`**: Base class for all integration entities.
-    Inherits from `CoordinatorEntity` and provides shared properties like
-    `device_info`.
+    Creates/authenticates the client, fetches initial device info, creates the
+    coordinator, forwards setup to platform files, and registers services.
+  - **`async_unload_entry`**: Unloads platforms, disconnects SSH collector, and
+    unregisters services when the last entry is removed.
+
+- **`coordinator.py`**: Hosts `NanoKVMDataUpdateCoordinator`.
+  - Central polling logic (`_async_update_data`) and API fetch helpers.
+  - Handles reauthentication, storage-state fetches, and SSH metric refresh.
+
+- **`entity.py`**: Defines `NanoKVMEntity` base class.
+  - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
+
+- **`services.py`**: Service schemas, registration, and handlers.
+  - Implements all `nanokvm.*` service behavior and unregister logic.
 
 - **`config_flow.py`**: Manages the user configuration flow in Home Assistant.
   - Implements `ConfigFlow` for manual setup and zeroconf discovery.
   - Includes `validate_input` to verify connectivity and authentication before
     creating the config entry.
-  - Handles auth step and prompts for username/password when defaults fail.
+  - Handles auth step, static-host option, and legacy/new unique-id matching.
 
 - **`const.py`**: Central repository for shared constants (domain, service
-  names, attribute names, icons).
+  names, attributes, defaults, icons, and signal names).
+
+- **`utils.py`**: Shared helpers for host normalization and SSH host extraction.
+
+- **`ssh_metrics.py`**: SSH metrics collection implementation used by the
+  coordinator.
 
 - **`manifest.json`**: Integration metadata.
   - Domain, name, version, dependencies (including `zeroconf`).
@@ -65,6 +71,7 @@ Assistant entity type:
 - `binary_sensor.py`
 - `button.py`
 - `camera.py`
+- `camera_webrtc.py` (WebRTC helper used by the camera platform)
 - `select.py`
 - `sensor.py`
 - `switch.py`
@@ -91,7 +98,7 @@ Each platform follows a similar pattern:
 
 - **`services.yaml`**:
   Defines integration services, descriptions, and fields for Home Assistant UI.
-  Service implementations are in `__init__.py`.
+  Service implementations are in `services.py`.
 
 ## Key Concepts
 
