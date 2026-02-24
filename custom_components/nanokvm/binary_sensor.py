@@ -89,18 +89,6 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
             coordinator.mounted_image and coordinator.mounted_image.file != ""
         ),
     ),
-    NanoKVMBinarySensorEntityDescription(
-        key="update_available",
-        name="Update Available",
-        translation_key="update_available",
-        icon="mdi:update",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: bool(
-            coordinator.application_version_info
-            and coordinator.application_version_info.current
-            != coordinator.application_version_info.latest
-        ),
-    ),
 )
 
 

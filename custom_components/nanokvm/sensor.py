@@ -23,7 +23,6 @@ from .const import (
     DOMAIN,
     ICON_DISK,
     ICON_IMAGE,
-    ICON_KVM,
     ICON_NETWORK,
     ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
@@ -46,31 +45,9 @@ def _normalize_tailscale_state(raw_state: str | None) -> str | None:
     return _TAILSCALE_STATE_MAP.get(raw_state, raw_state)
 
 
-def _firmware_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
-    """Return firmware sensor attributes."""
-    device_info = coordinator.device_info
-    hardware_info = coordinator.hardware_info
-    wifi_status = coordinator.wifi_status
-    oled_info = coordinator.oled_info
-
-    return {
-        "image_version": device_info.image if device_info is not None else None,
-        "hardware_version": (
-            hardware_info.version.value if hardware_info is not None else None
-        ),
-        "wifi_supported": wifi_status.supported if wifi_status is not None else None,
-        "oled_present": oled_info.exist if oled_info is not None else None,
-    }
-
-
 def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether there is a mounted image."""
     return bool(coordinator.mounted_image and coordinator.mounted_image.file != "")
-
-
-def _firmware_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
-    """Return firmware version value."""
-    return coordinator.device_info.application if coordinator.device_info else None
 
 
 def _mounted_image_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
@@ -118,15 +95,6 @@ class NanoKVMSensorEntityDescription(SensorEntityDescription):
 
 
 SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
-    NanoKVMSensorEntityDescription(
-        key="firmware_version",
-        name="Firmware Version",
-        translation_key="firmware_version",
-        icon=ICON_KVM,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=_firmware_value,
-        attributes_fn=_firmware_attributes,
-    ),
     NanoKVMSensorEntityDescription(
         key="mounted_image",
         name="Mounted Image",
