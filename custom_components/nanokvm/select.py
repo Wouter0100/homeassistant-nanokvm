@@ -23,11 +23,6 @@ from .const import (
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
 
-async def _noop_select_option(
-    _: NanoKVMDataUpdateCoordinator, __: str
-) -> None:
-    """Default no-op select handler."""
-
 
 @dataclass(frozen=True, kw_only=True)
 class NanoKVMSelectEntityDescription(SelectEntityDescription):
@@ -37,7 +32,7 @@ class NanoKVMSelectEntityDescription(SelectEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     select_option_fn: Callable[
         [NanoKVMDataUpdateCoordinator, str], Awaitable[Any]
-    ] = _noop_select_option
+    ] | None = None
 
 
 MOUSE_JIGGLER_OPTIONS = {
@@ -226,6 +221,8 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
+        if self.entity_description.select_option_fn is None:
+            raise RuntimeError(f"Missing select handler for select: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.select_option_fn(self.coordinator, option)
         await self.coordinator.async_request_refresh()
