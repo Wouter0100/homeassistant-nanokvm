@@ -8,12 +8,10 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.components import zeroconf
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVMError
 
@@ -22,9 +20,8 @@ from .utils import normalize_host, normalize_mdns
 
 _LOGGER = logging.getLogger(__name__)
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> str:
-    """Validate the user input allows us to connect.
-    """
+async def validate_input(data: dict[str, Any]) -> str:
+    """Validate the user input allows us to connect."""
     async with NanoKVMClient(normalize_host(data[CONF_HOST])) as client:
         try:
             await client.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD])
@@ -38,12 +35,14 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> str:
     return str(device_info.device_key)
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sipeed NanoKVM."""
 
     VERSION = 1
 
-    async def add_device(self, device_key: str, data: dict[str, Any]) -> FlowResult:
+    async def add_device(
+        self, device_key: str, data: dict[str, Any]
+    ) -> ConfigFlowResult:
         _LOGGER.debug(
             "Adding device - key: %s, Host: %s, Static: %s",
             device_key,
@@ -52,10 +51,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         await self.async_set_unique_id(device_key)
         self._abort_if_unique_id_configured()
-        
+
         if CONF_USE_STATIC_HOST not in data:
             data[CONF_USE_STATIC_HOST] = False
-        
+
         if data[CONF_USE_STATIC_HOST]:
             _LOGGER.debug(
                 "Device configured to use static host %s (mDNS discovery disabled)",
@@ -67,12 +66,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data[CONF_HOST],
                 device_key
             )
-        
+
         return self.async_create_entry(title=INTEGRATION_TITLE, data=data)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step (manual host entry)."""
         errors: dict[str, str] = {}
 
@@ -83,7 +82,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             } | user_input
 
             try:
-                await validate_input(self.hass, data)
+                await validate_input(data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -93,13 +92,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 self.data = user_input
                 return await self.async_step_auth()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 self.data = data            
                 return await self.async_step_confirm()
-            
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
@@ -108,15 +107,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             errors=errors,
         )
-    
+
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                device_key = await validate_input(self.hass, self.data)
+                device_key = await validate_input(self.data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -125,12 +124,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self.data[CONF_HOST],
                 )
                 return await self.async_step_auth()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 return await self.add_device(device_key, self.data)
-            
+
         return self.async_show_form(
             step_id="confirm",
             errors=errors,
@@ -139,27 +138,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_auth(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle authentication step."""
         errors: dict[str, str] = {}
-        
+
         schema = vol.Schema(
             {
                 vol.Required(CONF_USERNAME, default=DEFAULT_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
             }
         )
-        
+
         if user_input is not None:
             data = self.data | user_input
 
             try:
-                device_key = await validate_input(self.hass, data)
+                device_key = await validate_input(data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
@@ -172,8 +171,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_zeroconf(
-        self, discovery_info: zeroconf.ZeroconfServiceInfo
-    ) -> FlowResult:
+        self, discovery_info: ZeroconfServiceInfo
+    ) -> ConfigFlowResult:
         """Handle zeroconf discovery."""
         legacy_mdns_id = normalize_mdns(discovery_info.hostname)
 
@@ -220,8 +219,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # We'll let the flow continue to prompt for credentials.
             except (aiohttp.ClientError, NanoKVMError) as err:
                 _LOGGER.debug("Failed to connect to %s during discovery: %s. Ignoring as most likely not a NanoKVM device.", discovery_info.hostname, err)
-                return
-        
+                return self.async_abort(reason="cannot_connect")
+
         self.context["title_placeholders"] = {"name": discovery_info.hostname}
 
         self.data = {

@@ -36,11 +36,10 @@ class SSHMetricsCollector:
 
     async def collect(self) -> SSHMetricsSnapshot:
         """Collect uptime, memory and storage stats."""
-        if (
-            not self._client.ssh_client
-            or not self._client.ssh_client.get_transport()
-            or not self._client.ssh_client.get_transport().is_active()
-        ):
+        ssh_client = self._client.ssh_client
+        transport = ssh_client.get_transport() if ssh_client is not None else None
+
+        if ssh_client is None or transport is None or not transport.is_active():
             await self._client.authenticate(self._password)
 
         uptime = await self._fetch_uptime()
@@ -69,20 +68,25 @@ class SSHMetricsCollector:
     async def _fetch_memory(self) -> dict[str, float | None]:
         """Fetch memory stats via SSH."""
         meminfo = await self._client.run_command("cat /proc/meminfo")
-        mem_data = {}
+        mem_data: dict[str, int] = {}
         for line in meminfo.splitlines():
             parts = line.split()
             if len(parts) >= 2:
                 mem_data[parts[0].rstrip(":")] = int(parts[1])
 
-        stats = {"total": None, "used_percent": None}
-        if "MemTotal" in mem_data:
-            stats["total"] = round(mem_data["MemTotal"] / 1024, 2)
-            if stats["total"] > 0 and "MemAvailable" in mem_data:
-                memory_free = round(mem_data["MemAvailable"] / 1024, 2)
-                memory_used = round(stats["total"] - memory_free, 2)
-                stats["used_percent"] = round((memory_used / stats["total"]) * 100, 2)
-        return stats
+        total_mb: float | None = None
+        used_percent: float | None = None
+
+        mem_total_kb = mem_data.get("MemTotal")
+        if mem_total_kb is not None:
+            total_mb = round(mem_total_kb / 1024, 2)
+            mem_available_kb = mem_data.get("MemAvailable")
+            if total_mb > 0 and mem_available_kb is not None:
+                memory_free = round(mem_available_kb / 1024, 2)
+                memory_used = round(total_mb - memory_free, 2)
+                used_percent = round((memory_used / total_mb) * 100, 2)
+
+        return {"total": total_mb, "used_percent": used_percent}
 
     async def _fetch_cpu_temperature(self) -> float | None:
         """Fetch CPU temperature in Celsius via SSH."""
@@ -96,10 +100,13 @@ class SSHMetricsCollector:
         """Fetch storage stats via SSH."""
         df_output = await self._client.run_command("df -k /")
         lines = df_output.splitlines()
-        stats = {"total": None, "used_percent": None}
+        total_mb: float | None = None
+        used_percent: float | None = None
+
         if len(lines) >= 2:
             parts = lines[1].split()
             if len(parts) >= 5:
-                stats["total"] = round(int(parts[1]) / 1024, 2)
-                stats["used_percent"] = float(parts[4].rstrip("%"))
-        return stats
+                total_mb = round(int(parts[1]) / 1024, 2)
+                used_percent = float(parts[4].rstrip("%"))
+
+        return {"total": total_mb, "used_percent": used_percent}

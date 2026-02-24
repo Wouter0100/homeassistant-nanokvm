@@ -1,13 +1,13 @@
 """Button platform for Sipeed NanoKVM."""
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import GpioType, HWVersion
@@ -23,11 +23,11 @@ from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMButtonEntityDescription(ButtonEntityDescription):
     """Describes NanoKVM button entity."""
 
-    press_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
+    press_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[None]] | None = None
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
 
 
@@ -60,7 +60,10 @@ BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
         icon=ICON_KVM,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hdmi(),
-        available_fn=lambda coordinator: coordinator.hardware_info.version == HWVersion.PCIE,
+        available_fn=lambda coordinator: bool(
+            coordinator.hardware_info
+            and coordinator.hardware_info.version == HWVersion.PCIE
+        ),
     ),
     NanoKVMButtonEntityDescription(
         key="reset_hid",
@@ -118,6 +121,8 @@ class NanoKVMButton(NanoKVMEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Press the button."""
+        if self.entity_description.press_fn is None:
+            raise RuntimeError(f"Missing press handler for button: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.press_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
