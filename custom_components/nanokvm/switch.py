@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import GpioType, HWVersion, VirtualDevice
@@ -30,14 +30,16 @@ from .entity import NanoKVMEntity
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMSwitchEntityDescription(SwitchEntityDescription):
     """Describes NanoKVM switch entity."""
 
-    value_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = None
+    value_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = (
+        lambda _: False
+    )
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
-    turn_on_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
-    turn_off_fn: Callable[[NanoKVMDataUpdateCoordinator], None] = None
+    turn_on_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[Any]] | None = None
+    turn_off_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[Any]] | None = None
 
 
 def _hdmi_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -49,6 +51,7 @@ def _hdmi_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether HDMI controls are available."""
     return (
         coordinator.hdmi_state is not None
+        and coordinator.hardware_info is not None
         and coordinator.hardware_info.version == HWVersion.PCIE
     )
 
@@ -60,7 +63,9 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="ssh",
         icon=ICON_SSH,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.ssh_state.enabled,
+        value_fn=lambda coordinator: bool(
+            coordinator.ssh_state and coordinator.ssh_state.enabled
+        ),
         turn_on_fn=lambda coordinator: coordinator.client.enable_ssh(),
         turn_off_fn=lambda coordinator: coordinator.client.disable_ssh(),
     ),
@@ -70,7 +75,9 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="mdns",
         icon=ICON_MDNS,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.mdns_state.enabled,
+        value_fn=lambda coordinator: bool(
+            coordinator.mdns_state and coordinator.mdns_state.enabled
+        ),
         turn_on_fn=lambda coordinator: coordinator.client.enable_mdns(),
         turn_off_fn=lambda coordinator: coordinator.client.disable_mdns(),
     ),
@@ -80,7 +87,9 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="virtual_network",
         icon=ICON_NETWORK,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.virtual_device_info.network,
+        value_fn=lambda coordinator: bool(
+            coordinator.virtual_device_info and coordinator.virtual_device_info.network
+        ),
         turn_on_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.NETWORK),
         turn_off_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.NETWORK),
     ),
@@ -90,7 +99,9 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         translation_key="virtual_disk",
         icon=ICON_DISK,
         entity_category=EntityCategory.CONFIG,
-        value_fn=lambda coordinator: coordinator.virtual_device_info.disk,
+        value_fn=lambda coordinator: bool(
+            coordinator.virtual_device_info and coordinator.virtual_device_info.disk
+        ),
         turn_on_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.DISK),
         turn_off_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.DISK),
     ),
@@ -99,7 +110,9 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         name="Power",
         translation_key="power",
         icon=ICON_POWER,
-        value_fn=lambda coordinator: coordinator.gpio_info.pwr,
+        value_fn=lambda coordinator: bool(
+            coordinator.gpio_info and coordinator.gpio_info.pwr
+        ),
         turn_on_fn=lambda coordinator: coordinator.client.push_button(GpioType.POWER, 200),
         turn_off_fn=lambda coordinator: coordinator.client.push_button(GpioType.POWER, 200),
     ),
@@ -173,12 +186,16 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
+        if self.entity_description.turn_on_fn is None:
+            raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.turn_on_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
+        if self.entity_description.turn_off_fn is None:
+            raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.turn_off_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
@@ -189,29 +206,30 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
+        if self.entity_description.turn_on_fn is None:
+            raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.turn_on_fn(self.coordinator)
-        await asyncio.sleep(1)  # Give the device a moment to respond
+        await asyncio.sleep(1)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the power switch with monitoring for actual shutdown."""
+        if self.entity_description.turn_off_fn is None:
+            raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
         async with self.coordinator.client:
             await self.entity_description.turn_off_fn(self.coordinator)
 
-        # Wait for the device to be off, with a timeout
         SHUTDOWN_TIMEOUT = 300
         SHUTDOWN_POLL_INTERVAL = 5
 
         start_time = self.hass.loop.time()
         while self.hass.loop.time() - start_time < SHUTDOWN_TIMEOUT:
-            await self.coordinator.async_request_refresh()  # Request a refresh of coordinator data
+            await self.coordinator.async_request_refresh()
             if self.coordinator.gpio_info and not self.coordinator.gpio_info.pwr:
-                # Device is off, refresh one last time to ensure state is updated
                 await self.coordinator.async_request_refresh()
                 return
             await asyncio.sleep(SHUTDOWN_POLL_INTERVAL)
 
-        # If timeout is reached and device is still on, log a warning
         _LOGGER.warning("Device did not turn off within %s seconds", SHUTDOWN_TIMEOUT)
-        await self.coordinator.async_request_refresh()  # Refresh to show current (likely still on) state
+        await self.coordinator.async_request_refresh()

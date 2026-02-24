@@ -181,7 +181,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
-        if self.hid_mode.mode == HidMode.NORMAL:
+        if self.hid_mode and self.hid_mode.mode == HidMode.NORMAL:
             try:
                 self.mounted_image = await self.client.get_mounted_image()
             except NanoKVMApiError as err:

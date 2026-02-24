@@ -1,15 +1,14 @@
 """Select platform for Sipeed NanoKVM."""
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import HidMode, MouseJigglerMode
@@ -24,16 +23,21 @@ from .const import (
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
 
-_LOGGER = logging.getLogger(__name__)
+async def _noop_select_option(
+    _: NanoKVMDataUpdateCoordinator, __: str
+) -> None:
+    """Default no-op select handler."""
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMSelectEntityDescription(SelectEntityDescription):
     """Describes NanoKVM select entity."""
 
-    value_fn: Callable[[NanoKVMDataUpdateCoordinator], str] = None
+    value_fn: Callable[[NanoKVMDataUpdateCoordinator], str] = lambda _: ""
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
-    select_option_fn: Callable[[NanoKVMDataUpdateCoordinator, str], Any] = None
+    select_option_fn: Callable[
+        [NanoKVMDataUpdateCoordinator, str], Awaitable[Any]
+    ] = _noop_select_option
 
 
 MOUSE_JIGGLER_OPTIONS = {
@@ -73,10 +77,14 @@ SWAP_VALUES = {v: k for k, v in SWAP_OPTIONS.items()}
 
 def _hid_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     """Return current HID mode option."""
+    if coordinator.hid_mode is None:
+        return HID_MODE_VALUES[HidMode.NORMAL]
     return HID_MODE_VALUES.get(coordinator.hid_mode.mode, HID_MODE_VALUES[HidMode.NORMAL])
 
 
-def _set_hid_mode(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+def _set_hid_mode(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
     """Set HID mode from option key."""
     return coordinator.client.set_hid_mode(HID_MODE_OPTIONS.get(option, HidMode.NORMAL))
 
@@ -88,7 +96,9 @@ def _mouse_jiggler_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     return f"{coordinator.mouse_jiggler_state.mode.value}_mode"
 
 
-def _set_mouse_jiggler_mode(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+def _set_mouse_jiggler_mode(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
     """Set mouse jiggler state from option key."""
     return coordinator.client.set_mouse_jiggler_state(
         MOUSE_JIGGLER_OPTIONS.get(option) is not None,
@@ -98,10 +108,14 @@ def _set_mouse_jiggler_mode(coordinator: NanoKVMDataUpdateCoordinator, option: s
 
 def _oled_sleep_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     """Return current OLED sleep option."""
+    if coordinator.oled_info is None:
+        return "never"
     return OLED_SLEEP_VALUES.get(coordinator.oled_info.sleep, f"{coordinator.oled_info.sleep}_sec")
 
 
-def _set_oled_sleep(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+def _set_oled_sleep(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
     """Set OLED sleep timeout from option key."""
     return coordinator.client.set_oled_sleep(OLED_SLEEP_OPTIONS.get(option, 0))
 
@@ -113,7 +127,9 @@ def _swap_size_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     return SWAP_VALUES.get(coordinator.swap_size, f"{coordinator.swap_size}_mb")
 
 
-def _set_swap_size(coordinator: NanoKVMDataUpdateCoordinator, option: str) -> Any:
+def _set_swap_size(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
     """Set swap size from option key."""
     return coordinator.client.set_swap_size(SWAP_OPTIONS.get(option, 0))
 
@@ -150,7 +166,9 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         options=list(OLED_SLEEP_OPTIONS.keys()),
         value_fn=_oled_sleep_value,
         select_option_fn=_set_oled_sleep,
-        available_fn=lambda coordinator: coordinator.oled_info.exist,
+        available_fn=lambda coordinator: bool(
+            coordinator.oled_info and coordinator.oled_info.exist
+        ),
     ),
     NanoKVMSelectEntityDescription(
         key="swap_size",

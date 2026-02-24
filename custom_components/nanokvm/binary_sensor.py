@@ -10,8 +10,8 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import HWVersion
@@ -26,12 +26,16 @@ from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Describes NanoKVM binary sensor entity."""
 
-    value_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = None
-    available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
+    value_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = (
+        lambda _: False
+    )
+    available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = (
+        lambda _: True
+    )
 
 
 BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
@@ -40,16 +44,23 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         name="Power LED",
         translation_key="power_led",
         icon=ICON_POWER,
-        value_fn=lambda coordinator: coordinator.gpio_info.pwr,
+        value_fn=lambda coordinator: bool(
+            coordinator.gpio_info and coordinator.gpio_info.pwr
+        ),
     ),
     NanoKVMBinarySensorEntityDescription(
         key="hdd_led",
         name="HDD LED",
         translation_key="hdd_led",
         icon=ICON_DISK,
-        value_fn=lambda coordinator: coordinator.gpio_info.hdd,
+        value_fn=lambda coordinator: bool(
+            coordinator.gpio_info and coordinator.gpio_info.hdd
+        ),
         # HDD LED is only valid for Alpha hardware
-        available_fn=lambda coordinator: coordinator.hardware_info.version == HWVersion.ALPHA,
+        available_fn=lambda coordinator: bool(
+            coordinator.hardware_info
+            and coordinator.hardware_info.version == HWVersion.ALPHA
+        ),
     ),
     NanoKVMBinarySensorEntityDescription(
         key="wifi_connected",
@@ -58,8 +69,12 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         icon=ICON_WIFI,
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.wifi_status.connected,
-        available_fn=lambda coordinator: coordinator.wifi_status.supported,
+        value_fn=lambda coordinator: bool(
+            coordinator.wifi_status and coordinator.wifi_status.connected
+        ),
+        available_fn=lambda coordinator: bool(
+            coordinator.wifi_status and coordinator.wifi_status.supported
+        ),
     ),
     NanoKVMBinarySensorEntityDescription(
         key="cdrom_mode",
@@ -67,8 +82,12 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         translation_key="cdrom_mode",
         icon=ICON_DISK,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.cdrom_status.cdrom == 1,
-        available_fn=lambda coordinator: coordinator.mounted_image.file != "",
+        value_fn=lambda coordinator: bool(
+            coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
+        ),
+        available_fn=lambda coordinator: bool(
+            coordinator.mounted_image and coordinator.mounted_image.file != ""
+        ),
     ),
     NanoKVMBinarySensorEntityDescription(
         key="update_available",
@@ -76,8 +95,9 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         translation_key="update_available",
         icon="mdi:update",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: (
-            coordinator.application_version_info.current
+        value_fn=lambda coordinator: bool(
+            coordinator.application_version_info
+            and coordinator.application_version_info.current
             != coordinator.application_version_info.latest
         ),
     ),

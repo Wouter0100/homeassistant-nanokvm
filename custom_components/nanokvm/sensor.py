@@ -13,10 +13,9 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTemperature
+from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -49,26 +48,48 @@ def _normalize_tailscale_state(raw_state: str | None) -> str | None:
 
 def _firmware_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
     """Return firmware sensor attributes."""
+    device_info = coordinator.device_info
+    hardware_info = coordinator.hardware_info
+    wifi_status = coordinator.wifi_status
+    oled_info = coordinator.oled_info
+
     return {
-        "image_version": coordinator.device_info.image,
-        "hardware_version": coordinator.hardware_info.version.value,
-        "wifi_supported": coordinator.wifi_status.supported,
-        "oled_present": coordinator.oled_info.exist,
+        "image_version": device_info.image if device_info is not None else None,
+        "hardware_version": (
+            hardware_info.version.value if hardware_info is not None else None
+        ),
+        "wifi_supported": wifi_status.supported if wifi_status is not None else None,
+        "oled_present": oled_info.exist if oled_info is not None else None,
     }
 
 
 def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether there is a mounted image."""
-    return coordinator.mounted_image.file != ""
+    return bool(coordinator.mounted_image and coordinator.mounted_image.file != "")
+
+
+def _firmware_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
+    """Return firmware version value."""
+    return coordinator.device_info.application if coordinator.device_info else None
+
+
+def _mounted_image_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
+    """Return mounted image path."""
+    return coordinator.mounted_image.file if coordinator.mounted_image else ""
 
 
 def _tailscale_state_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
     """Return normalized tailscale state value."""
+    if coordinator.tailscale_status is None:
+        return None
     return _normalize_tailscale_state(coordinator.tailscale_status.state.value)
 
 
 def _tailscale_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
     """Return tailscale sensor attributes."""
+    if coordinator.tailscale_status is None:
+        return {}
+
     return {
         "name": coordinator.tailscale_status.name,
         "ip": coordinator.tailscale_status.ip,
@@ -86,11 +107,11 @@ def _storage_total_attribute(coordinator: NanoKVMDataUpdateCoordinator) -> dict[
     return {"total_mb": coordinator.storage_total} if coordinator.storage_total is not None else {}
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMSensorEntityDescription(SensorEntityDescription):
     """Describes NanoKVM sensor entity."""
 
-    value_fn: Callable[[NanoKVMDataUpdateCoordinator], Any] = None
+    value_fn: Callable[[NanoKVMDataUpdateCoordinator], Any] = lambda _: None
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     should_create_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     attributes_fn: Callable[[NanoKVMDataUpdateCoordinator], dict[str, Any]] = lambda _: {}
@@ -103,7 +124,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         translation_key="firmware_version",
         icon=ICON_KVM,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.device_info.application,
+        value_fn=_firmware_value,
         attributes_fn=_firmware_attributes,
     ),
     NanoKVMSensorEntityDescription(
@@ -112,7 +133,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         translation_key="mounted_image",
         icon=ICON_IMAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.mounted_image.file,
+        value_fn=_mounted_image_value,
         should_create_fn=_has_mounted_image,
         available_fn=_has_mounted_image,
     ),
