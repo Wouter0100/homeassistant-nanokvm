@@ -205,6 +205,11 @@
         }
       }
     },
+    "update": {
+      "application": {
+        "name": "Aplicativo"
+      }
+    },
     "button": {
       "power": {
         "name": "Ligar"
