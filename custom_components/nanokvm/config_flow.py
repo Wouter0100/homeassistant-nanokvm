@@ -217,7 +217,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 # If authentication fails, it's still a NanoKVM device, but we can't get device_info.
                 # We'll let the flow continue to prompt for credentials.
-            except (aiohttp.ClientError, NanoKVMError) as err:
+            except (aiohttp.ClientError, asyncio.TimeoutError, NanoKVMError) as err:
                 _LOGGER.debug("Failed to connect to %s during discovery: %s. Ignoring as most likely not a NanoKVM device.", discovery_info.hostname, err)
                 return self.async_abort(reason="cannot_connect")
 
