@@ -62,29 +62,9 @@
       },
       "mouse_jiggler": {
         "name": "Agitateur de souris"
-      },
-      "update_available": {
-        "name": "Mise à jour disponible"
       }
     },
     "sensor": {
-      "firmware_version": {
-        "name": "Version du firmware",
-        "state_attributes": {
-          "image_version": {
-            "name": "Version de l'image"
-          },
-          "hardware_version": {
-            "name": "Version matérielle"
-          },
-          "wifi_supported": {
-            "name": "WiFi pris en charge"
-          },
-          "oled_present": {
-            "name": "OLED présent"
-          }
-        }
-      },
       "hid_mode": {
         "name": "Mode HID"
       },
@@ -205,6 +185,11 @@
         }
       }
     },
+    "update": {
+      "application": {
+        "name": "Application"
+      }
+    },
     "button": {
       "power": {
         "name": "Bouton d'alimentation"
@@ -220,9 +205,6 @@
       },
       "reset_hid": {
         "name": "Réinitialiser HID"
-      },
-      "update_application": {
-        "name": "Mettre à jour l'application"
       }
     },
     "camera": {

@@ -100,6 +100,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 return await self._async_fetch_once()
             except UpdateFailed as err:
                 if attempt == _UPDATE_MAX_ATTEMPTS:
+                    _LOGGER.debug(
+                        "NanoKVM update attempt %s/%s failed for %s: %s. No retries left.",
+                        attempt,
+                        _UPDATE_MAX_ATTEMPTS,
+                        current_host,
+                        err,
+                    )
                     raise
                 _LOGGER.debug(
                     "NanoKVM update attempt %s/%s failed for %s: %s. Retrying in %ss",

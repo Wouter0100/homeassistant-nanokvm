@@ -73,14 +73,6 @@ BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hid(),
     ),
-    NanoKVMButtonEntityDescription(
-        key="update_application",
-        name="Update Application",
-        translation_key="update_application",
-        icon=ICON_KVM,
-        entity_category=EntityCategory.CONFIG,
-        press_fn=lambda coordinator: coordinator.client.update_application(),
-    ),
 )
 
 
