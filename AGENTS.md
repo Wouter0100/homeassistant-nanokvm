@@ -75,6 +75,7 @@ Assistant entity type:
 - `select.py`
 - `sensor.py`
 - `switch.py`
+- `update.py`
 
 Each platform follows a similar pattern:
 
