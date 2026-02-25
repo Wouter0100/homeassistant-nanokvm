@@ -29,6 +29,10 @@ from .utils import extract_ssh_host, normalize_host
 
 _LOGGER = logging.getLogger(__name__)
 
+_UPDATE_MAX_ATTEMPTS = 3
+_UPDATE_RETRY_DELAY_SECONDS = 1
+_UPDATE_TIMEOUT_SECONDS = 10
+
 
 class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching NanoKVM data."""
@@ -91,15 +95,35 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             use_static_host,
         )
 
-        try:
-            async with self.client, async_timeout.timeout(10):
-                if not self.client.token:
-                    await self.client.authenticate(self.username, self.password)
+        for attempt in range(1, _UPDATE_MAX_ATTEMPTS + 1):
+            try:
+                return await self._async_fetch_once()
+            except UpdateFailed as err:
+                if attempt == _UPDATE_MAX_ATTEMPTS:
+                    _LOGGER.debug(
+                        "NanoKVM update attempt %s/%s failed for %s: %s. No retries left.",
+                        attempt,
+                        _UPDATE_MAX_ATTEMPTS,
+                        current_host,
+                        err,
+                    )
+                    raise
+                _LOGGER.debug(
+                    "NanoKVM update attempt %s/%s failed for %s: %s. Retrying in %ss",
+                    attempt,
+                    _UPDATE_MAX_ATTEMPTS,
+                    current_host,
+                    err,
+                    _UPDATE_RETRY_DELAY_SECONDS,
+                )
+                await asyncio.sleep(_UPDATE_RETRY_DELAY_SECONDS)
 
-                await self._async_fetch_core_data()
-                await self._async_fetch_storage_data()
-                await self._async_refresh_ssh_data()
-                return self._build_update_data()
+        raise UpdateFailed("NanoKVM update failed after retry attempts")
+
+    async def _async_fetch_once(self) -> dict[str, Any]:
+        """Fetch data once, handling reauthentication when needed."""
+        try:
+            return await self._async_fetch_with_client()
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if (
                 (
@@ -110,19 +134,8 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                     )
                 )
             ):
-                host = normalize_host(self.config_entry.data[CONF_HOST])
-                new_client = NanoKVMClient(host)
-                try:
-                    async with new_client:
-                        await new_client.authenticate(self.username, self.password)
-                    self.client = new_client
-                    return await self._async_update_data()
-                except Exception as auth_err:
-                    if isinstance(err, aiohttp.ClientResponseError):
-                        raise UpdateFailed(
-                            f"Reauthentication failed: {auth_err}"
-                        ) from auth_err
-                    raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
+                await self._async_reauthenticate_client(err)
+                return await self._async_fetch_with_client()
 
             if isinstance(err, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
@@ -130,6 +143,30 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
         except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+
+    async def _async_fetch_with_client(self) -> dict[str, Any]:
+        """Fetch data using the current client instance."""
+        async with self.client, async_timeout.timeout(_UPDATE_TIMEOUT_SECONDS):
+            if not self.client.token:
+                await self.client.authenticate(self.username, self.password)
+
+            await self._async_fetch_core_data()
+            await self._async_fetch_storage_data()
+            await self._async_refresh_ssh_data()
+            return self._build_update_data()
+
+    async def _async_reauthenticate_client(self, original_error: Exception) -> None:
+        """Reauthenticate and replace the client when token/auth fails."""
+        host = normalize_host(self.config_entry.data[CONF_HOST])
+        new_client = NanoKVMClient(host)
+        try:
+            async with new_client:
+                await new_client.authenticate(self.username, self.password)
+            self.client = new_client
+        except Exception as auth_err:
+            if isinstance(original_error, aiohttp.ClientResponseError):
+                raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
+            raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
 
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
@@ -151,7 +188,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
-        if self.hid_mode.mode == HidMode.NORMAL:
+        if self.hid_mode and self.hid_mode.mode == HidMode.NORMAL:
             try:
                 self.mounted_image = await self.client.get_mounted_image()
             except NanoKVMApiError as err:

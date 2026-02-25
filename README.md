@@ -58,6 +58,13 @@ Notes:
 - Unique ID is based on NanoKVM `device_key`.
 - HTTPS is currently not supported by this integration.
   Use `http://` (or plain IP/hostname).
+- Coordinator polling interval is 30 seconds.
+
+## Known Limitations
+
+- HTTPS/TLS is not supported yet.
+- Host updates from discovery are disabled when **Use static host only** is enabled.
+- Camera stream availability depends on HDMI input/source status.
 
 ## Entities
 
@@ -76,19 +83,32 @@ Notes:
 - HDD LED is Alpha-only.
 - SSH diagnostics require SSH enabled on NanoKVM.
 
+## Hardware Compatibility
+
+| Feature | Availability |
+| --- | --- |
+| HDMI switch/button controls | PCI-E models |
+| HDD LED binary sensor | Alpha models |
+| SSH diagnostic sensors | Any model with SSH enabled |
+
 ## Services
 
 All services are under the `nanokvm` domain.
+For full call examples, see [`SERVICES.md`](SERVICES.md).
 
 | Service | Parameters | Description |
 | --- | --- | --- |
 | `push_button` | `button_type`, `duration` | Simulate a button press |
-| `paste_text` | `text` | Paste ASCII text via HID keyboard |
+| `paste_text` | `text` | Paste text via HID keyboard (ASCII printable only) |
 | `reboot` | - | Reboot NanoKVM |
 | `reset_hdmi` | - | Reset HDMI subsystem |
 | `reset_hid` | - | Reset HID subsystem |
 | `wake_on_lan` | `mac` | Send Wake-on-LAN packet |
 | `set_mouse_jiggler` | `enabled`, `mode` | Set mouse jiggler state |
+
+Notes:
+
+- `push_button.duration` range is `100-5000` ms.
 
 ## Example Automation
 
@@ -125,6 +145,9 @@ automation:
 
 - Documentation: <https://github.com/Wouter0100/homeassistant-nanokvm>
 - Issues: <https://github.com/Wouter0100/homeassistant-nanokvm/issues>
+- Service examples: [`SERVICES.md`](SERVICES.md)
+- Contributing guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- Agent/dev notes: [`AGENTS.md`](AGENTS.md)
 - Python library (`python-nanokvm`):
   <https://github.com/puddly/python-nanokvm>
 - License: MIT (`LICENSE`)

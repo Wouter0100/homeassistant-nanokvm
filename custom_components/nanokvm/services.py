@@ -20,6 +20,7 @@ from .const import (
     ATTR_TEXT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
+    CONF_HOST,
     DOMAIN,
     SERVICE_PASTE_TEXT,
     SERVICE_PUSH_BUTTON,
@@ -80,17 +81,18 @@ def async_register_services(hass: HomeAssistant) -> None:
 
     async def _execute_service(
         service_name: str,
-        handler: Callable[[NanoKVMClient], Awaitable[None]],
+        handler: Callable[[NanoKVMClient, str], Awaitable[None]],
     ) -> None:
         """Execute a service on all configured NanoKVM devices."""
         for coordinator in hass.data.get(DOMAIN, {}).values():
             client = coordinator.client
+            host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
             try:
                 async with client:
-                    await handler(client)
+                    await handler(client, host)
             except Exception as err:
                 _LOGGER.error(
-                    "Error executing %s service for %s: %s", service_name, client.host, err
+                    "Error executing %s service for %s: %s", service_name, host, err
                 )
 
     async def handle_push_button(call: ServiceCall) -> None:
@@ -99,9 +101,9 @@ def async_register_services(hass: HomeAssistant) -> None:
         duration = call.data[ATTR_DURATION]
         gpio_type = GpioType.POWER if button_type == BUTTON_TYPE_POWER else GpioType.RESET
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.push_button(gpio_type, duration)
-            _LOGGER.debug("Button %s pushed for %d ms on %s", button_type, duration, client.host)
+            _LOGGER.debug("Button %s pushed for %d ms on %s", button_type, duration, host)
 
         await _execute_service(SERVICE_PUSH_BUTTON, service_logic)
 
@@ -109,36 +111,36 @@ def async_register_services(hass: HomeAssistant) -> None:
         """Handle the paste text service."""
         text = call.data[ATTR_TEXT]
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.paste_text(text)
-            _LOGGER.debug("Text pasted on %s", client.host)
+            _LOGGER.debug("Text pasted on %s", host)
 
         await _execute_service(SERVICE_PASTE_TEXT, service_logic)
 
     async def handle_reboot(_: ServiceCall) -> None:
         """Handle the reboot service."""
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.reboot_system()
-            _LOGGER.debug("System reboot initiated on %s", client.host)
+            _LOGGER.debug("System reboot initiated on %s", host)
 
         await _execute_service(SERVICE_REBOOT, service_logic)
 
     async def handle_reset_hdmi(_: ServiceCall) -> None:
         """Handle the reset HDMI service."""
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.reset_hdmi()
-            _LOGGER.debug("HDMI reset initiated on %s", client.host)
+            _LOGGER.debug("HDMI reset initiated on %s", host)
 
         await _execute_service(SERVICE_RESET_HDMI, service_logic)
 
     async def handle_reset_hid(_: ServiceCall) -> None:
         """Handle the reset HID service."""
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.reset_hid()
-            _LOGGER.debug("HID reset initiated on %s", client.host)
+            _LOGGER.debug("HID reset initiated on %s", host)
 
         await _execute_service(SERVICE_RESET_HID, service_logic)
 
@@ -146,9 +148,9 @@ def async_register_services(hass: HomeAssistant) -> None:
         """Handle the wake on LAN service."""
         mac = call.data[ATTR_MAC]
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.send_wake_on_lan(mac)
-            _LOGGER.debug("Wake on LAN packet sent to %s via %s", mac, client.host)
+            _LOGGER.debug("Wake on LAN packet sent to %s via %s", mac, host)
 
         await _execute_service(SERVICE_WAKE_ON_LAN, service_logic)
 
@@ -162,10 +164,10 @@ def async_register_services(hass: HomeAssistant) -> None:
             else MouseJigglerMode.RELATIVE
         )
 
-        async def service_logic(client: NanoKVMClient) -> None:
+        async def service_logic(client: NanoKVMClient, host: str) -> None:
             await client.set_mouse_jiggler_state(enabled, mode)
             _LOGGER.debug(
-                "Mouse jiggler on %s set to %s with mode %s", client.host, enabled, mode_str
+                "Mouse jiggler on %s set to %s with mode %s", host, enabled, mode_str
             )
 
         await _execute_service(SERVICE_SET_MOUSE_JIGGLER, service_logic)

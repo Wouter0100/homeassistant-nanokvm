@@ -31,7 +31,7 @@ MAX_PENDING_ICE_CANDIDATES = 64
 SNAPSHOT_TIMEOUT_SECONDS = 20
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=True, kw_only=True)
 class NanoKVMCameraEntityDescription(EntityDescription):
     """Describes NanoKVM camera entity."""
 

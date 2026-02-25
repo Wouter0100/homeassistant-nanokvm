@@ -12,7 +12,7 @@ from .coordinator import NanoKVMDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
-class NanoKVMEntity(CoordinatorEntity):
+class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
     """Base class for NanoKVM entities."""
 
     _attr_has_entity_name = True
@@ -35,15 +35,28 @@ class NanoKVMEntity(CoordinatorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information about this NanoKVM device."""
-        sw_version = self.coordinator.device_info.application
-        if hasattr(self.coordinator.device_info, "image") and self.coordinator.device_info.image:
-            sw_version += f" (Image: {self.coordinator.device_info.image})"
+        device_data = self.coordinator.device_info
+        hostname = (
+            self.coordinator.hostname_info.hostname
+            if self.coordinator.hostname_info is not None
+            else INTEGRATION_TITLE
+        )
+        hw_version = (
+            self.coordinator.hardware_info.version.value
+            if self.coordinator.hardware_info is not None
+            else "Unknown"
+        )
+
+        sw_version = device_data.application
+        image = getattr(device_data, "image", None)
+        if image:
+            sw_version += f" (Image: {image})"
 
         return {
-            "identifiers": {(DOMAIN, self.coordinator.device_info.device_key)},
-            "name": self.coordinator.hostname_info.hostname,
+            "identifiers": {(DOMAIN, device_data.device_key)},
+            "name": hostname,
             "manufacturer": "Sipeed",
-            "model": f"{INTEGRATION_TITLE} {self.coordinator.hardware_info.version.value}",
+            "model": f"{INTEGRATION_TITLE} {hw_version}",
             "sw_version": sw_version,
-            "hw_version": self.coordinator.hardware_info.version.value,
+            "hw_version": hw_version,
         }

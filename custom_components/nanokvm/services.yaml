@@ -56,3 +56,23 @@ wake_on_lan:
       example: "00:11:22:33:44:55"
       selector:
         text:
+
+set_mouse_jiggler:
+  name: Set Mouse Jiggler
+  description: Configure the mouse jiggler state and mode.
+  fields:
+    enabled:
+      name: Enabled
+      description: Enable or disable the mouse jiggler.
+      required: true
+      selector:
+        boolean:
+    mode:
+      name: Mode
+      description: The mouse jiggler mode (absolute or relative).
+      default: "absolute"
+      selector:
+        select:
+          options:
+            - "absolute"
+            - "relative"

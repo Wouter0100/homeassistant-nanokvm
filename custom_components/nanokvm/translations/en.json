@@ -62,29 +62,9 @@
       },
       "mouse_jiggler": {
         "name": "Mouse Jiggler"
-      },
-      "update_available": {
-        "name": "Update Available"
       }
     },
     "sensor": {
-      "firmware_version": {
-        "name": "Firmware Version",
-        "state_attributes": {
-          "image_version": {
-            "name": "Image Version"
-          },
-          "hardware_version": {
-            "name": "Hardware Version"
-          },
-          "wifi_supported": {
-            "name": "WiFi Supported"
-          },
-          "oled_present": {
-            "name": "OLED Present"
-          }
-        }
-      },
       "hid_mode": {
         "name": "HID Mode"
       },
@@ -205,6 +185,11 @@
         }
       }
     },
+    "update": {
+      "application": {
+        "name": "Application"
+      }
+    },
     "button": {
       "power": {
         "name": "Power Button"
@@ -220,9 +205,6 @@
       },
       "reset_hid": {
         "name": "Reset HID"
-      },
-      "update_application": {
-        "name": "Update Application"
       }
     },
     "camera": {
