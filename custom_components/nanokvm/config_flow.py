@@ -174,9 +174,10 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self, discovery_info: ZeroconfServiceInfo
     ) -> ConfigFlowResult:
         """Handle zeroconf discovery."""
-        legacy_mdns_id = normalize_mdns(discovery_info.hostname)
+        discovery_hostname = normalize_mdns(discovery_info.hostname)
+        discovery_host = discovery_info.host
 
-        async with NanoKVMClient(normalize_host(discovery_info.hostname)) as client:
+        async with NanoKVMClient(normalize_host(discovery_host)) as client:
             try:
                 await client.authenticate(DEFAULT_USERNAME, DEFAULT_PASSWORD)
                 device_info = await client.get_info()
@@ -186,45 +187,52 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 # Support both old (mDNS) and new (device_key) unique IDs.
                 for entry in self._async_current_entries():
-                    if entry.unique_id not in (device_key, legacy_mdns_id):
+                    if entry.unique_id not in (device_key, discovery_hostname):
                         continue
                     if entry.data.get(CONF_USE_STATIC_HOST, False):
                         _LOGGER.debug(
                             "Device %s is configured with static host (%s), ignoring discovery",
-                            discovery_info.hostname,
+                            discovery_host,
                             entry.data[CONF_HOST],
                         )
                     else:
                         _LOGGER.debug(
                             "Device %s is already configured, ignoring discovery",
-                            discovery_info.hostname,
+                            discovery_host,
                         )
                     return self.async_abort(reason="already_configured")
 
                 self._abort_if_unique_id_configured()
 
                 _LOGGER.debug(
-                    "Discovered NanoKVM device at %s that uses default credentials.",
-                    discovery_info.hostname,
+                    "Discovered NanoKVM device at %s (%s) that uses default credentials.",
+                    discovery_hostname,
+                    discovery_host,
                 )
             except NanoKVMAuthenticationFailure:
                 # Fall back to legacy ID path when authentication blocks device_key retrieval.
-                await self.async_set_unique_id(legacy_mdns_id)
+                await self.async_set_unique_id(discovery_hostname)
                 self._abort_if_unique_id_configured()
                 _LOGGER.debug(
-                    "Discovered NanoKVM device at %s requires user credentials.",
-                    discovery_info.hostname,
+                    "Discovered NanoKVM device at %s (%s) requires user credentials.",
+                    discovery_hostname,
+                    discovery_host,
                 )
                 # If authentication fails, it's still a NanoKVM device, but we can't get device_info.
                 # We'll let the flow continue to prompt for credentials.
             except (aiohttp.ClientError, asyncio.TimeoutError, NanoKVMError) as err:
-                _LOGGER.debug("Failed to connect to %s during discovery: %s. Ignoring as most likely not a NanoKVM device.", discovery_info.hostname, err)
+                _LOGGER.debug(
+                    "Failed to connect to %s (%s) during discovery: %s. Ignoring as most likely not a NanoKVM device.",
+                    discovery_hostname,
+                    discovery_host,
+                    err,
+                )
                 return self.async_abort(reason="cannot_connect")
 
-        self.context["title_placeholders"] = {"name": discovery_info.hostname}
+        self.context["title_placeholders"] = {"name": discovery_info.hostname.rstrip(".")}
 
         self.data = {
-            CONF_HOST: discovery_info.hostname
+            CONF_HOST: discovery_host
         }
         return await self.async_step_user(user_input=self.data)
 
