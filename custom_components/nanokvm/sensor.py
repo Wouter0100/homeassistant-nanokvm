@@ -102,7 +102,6 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         icon=ICON_IMAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_mounted_image_value,
-        should_create_fn=_has_mounted_image,
         available_fn=_has_mounted_image,
     ),
     NanoKVMSensorEntityDescription(

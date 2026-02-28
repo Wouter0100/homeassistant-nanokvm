@@ -31,6 +31,14 @@ class NanoKVMButtonEntityDescription(ButtonEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
 
 
+def _is_pcie_hardware(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the device is PCIe hardware."""
+    return bool(
+        coordinator.hardware_info
+        and coordinator.hardware_info.version == HWVersion.PCIE
+    )
+
+
 BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
     NanoKVMButtonEntityDescription(
         key="power",
@@ -60,10 +68,7 @@ BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
         icon=ICON_KVM,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hdmi(),
-        available_fn=lambda coordinator: bool(
-            coordinator.hardware_info
-            and coordinator.hardware_info.version == HWVersion.PCIE
-        ),
+        available_fn=_is_pcie_hardware,
     ),
     NanoKVMButtonEntityDescription(
         key="reset_hid",

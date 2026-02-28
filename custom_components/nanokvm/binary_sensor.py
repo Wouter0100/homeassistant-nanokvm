@@ -36,6 +36,27 @@ class NanoKVMBinarySensorEntityDescription(BinarySensorEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = (
         lambda _: True
     )
+    should_create_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = (
+        lambda _: True
+    )
+
+
+def _is_alpha_hardware(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the device is Alpha hardware."""
+    return bool(
+        coordinator.hardware_info
+        and coordinator.hardware_info.version == HWVersion.ALPHA
+    )
+
+
+def _wifi_supported(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Wi-Fi is supported."""
+    return bool(coordinator.wifi_status and coordinator.wifi_status.supported)
+
+
+def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether there is a mounted image."""
+    return bool(coordinator.mounted_image and coordinator.mounted_image.file != "")
 
 
 BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
@@ -57,10 +78,8 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
             coordinator.gpio_info and coordinator.gpio_info.hdd
         ),
         # HDD LED is only valid for Alpha hardware
-        available_fn=lambda coordinator: bool(
-            coordinator.hardware_info
-            and coordinator.hardware_info.version == HWVersion.ALPHA
-        ),
+        available_fn=_is_alpha_hardware,
+        should_create_fn=_is_alpha_hardware,
     ),
     NanoKVMBinarySensorEntityDescription(
         key="wifi_connected",
@@ -72,9 +91,8 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.wifi_status and coordinator.wifi_status.connected
         ),
-        available_fn=lambda coordinator: bool(
-            coordinator.wifi_status and coordinator.wifi_status.supported
-        ),
+        available_fn=_wifi_supported,
+        should_create_fn=_wifi_supported,
     ),
     NanoKVMBinarySensorEntityDescription(
         key="cdrom_mode",
@@ -85,9 +103,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
         ),
-        available_fn=lambda coordinator: bool(
-            coordinator.mounted_image and coordinator.mounted_image.file != ""
-        ),
+        available_fn=_has_mounted_image,
     ),
 )
 
@@ -106,7 +122,7 @@ async def async_setup_entry(
             description=description,
         )
         for description in BINARY_SENSORS
-        if description.available_fn(coordinator)
+        if description.should_create_fn(coordinator)
     )
 
 
@@ -131,3 +147,8 @@ class NanoKVMBinarySensor(NanoKVMEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         """Return the state of the binary sensor."""
         return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return super().available and self.entity_description.available_fn(self.coordinator)
