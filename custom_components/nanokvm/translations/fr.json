@@ -218,6 +218,10 @@
       "name": "Appuyer sur un bouton",
       "description": "Simuler l'appui sur un bouton matériel de l'appareil NanoKVM.",
       "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        },
         "button_type": {
           "name": "Type de bouton",
           "description": "Le type de bouton sur lequel appuyer (alimentation ou réinitialisation)."
@@ -232,6 +236,10 @@
       "name": "Coller du texte",
       "description": "Coller du texte via la simulation de clavier HID.",
       "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        },
         "text": {
           "name": "Texte",
           "description": "Le texte à coller. Seuls les caractères ASCII imprimables sont pris en charge."
@@ -240,20 +248,42 @@
     },
     "reboot": {
       "name": "Redémarrer le système",
-      "description": "Redémarrer l'appareil NanoKVM."
+      "description": "Redémarrer l'appareil NanoKVM.",
+      "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        }
+      }
     },
     "reset_hdmi": {
       "name": "Réinitialiser HDMI",
-      "description": "Réinitialiser la connexion HDMI (pertinent pour la version PCIe)."
+      "description": "Réinitialiser la connexion HDMI (pertinent pour la version PCIe).",
+      "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        }
+      }
     },
     "reset_hid": {
       "name": "Réinitialiser HID",
-      "description": "Réinitialiser le sous-système HID."
+      "description": "Réinitialiser le sous-système HID.",
+      "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        }
+      }
     },
     "wake_on_lan": {
       "name": "Wake on LAN",
       "description": "Envoyer un paquet Wake-on-LAN à l'adresse MAC spécifiée.",
       "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        },
         "mac": {
           "name": "Adresse MAC",
           "description": "L'adresse MAC à laquelle envoyer le paquet Wake-on-LAN."
@@ -264,6 +294,10 @@
       "name": "Définir l'agitateur de souris",
       "description": "Configurer l'état et le mode de l'agitateur de souris.",
       "fields": {
+        "host": {
+          "name": "Hôte",
+          "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
+        },
         "enabled": {
           "name": "Activé",
           "description": "Activer ou désactiver l'agitateur de souris."
