@@ -40,6 +40,7 @@ class NanoKVMSwitchEntityDescription(SwitchEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     turn_on_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[Any]] | None = None
     turn_off_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[Any]] | None = None
+    virtual_device: VirtualDevice | None = None
 
 
 def _hdmi_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -90,8 +91,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
         ),
-        turn_on_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.NETWORK),
-        turn_off_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.NETWORK),
+        virtual_device=VirtualDevice.NETWORK,
     ),
     NanoKVMSwitchEntityDescription(
         key="virtual_disk",
@@ -102,8 +102,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.disk
         ),
-        turn_on_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.DISK),
-        turn_off_fn=lambda coordinator: coordinator.client.update_virtual_device(VirtualDevice.DISK),
+        virtual_device=VirtualDevice.DISK,
     ),
     NanoKVMSwitchEntityDescription(
         key="power",
@@ -141,6 +140,15 @@ async def async_setup_entry(
     entities = []
     for description in SWITCHES:
         if not description.available_fn(coordinator):
+            continue
+
+        if description.virtual_device is not None:
+            entities.append(
+                NanoKVMVirtualDeviceSwitch(
+                    coordinator=coordinator,
+                    description=description,
+                )
+            )
             continue
 
         if description.key == "power":
@@ -233,3 +241,33 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
         _LOGGER.warning("Device did not turn off within %s seconds", SHUTDOWN_TIMEOUT)
         await self.coordinator.async_request_refresh()
+
+
+class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
+    """Defines a virtual device switch backed by a toggle-only API."""
+
+    async def _async_set_virtual_device_state(self, enabled: bool) -> None:
+        """Refresh first, then toggle only when the requested state differs."""
+        virtual_device = self.entity_description.virtual_device
+        if virtual_device is None:
+            raise RuntimeError(
+                f"Missing virtual device type for switch: {self.entity_description.key}"
+            )
+
+        await self.coordinator.async_request_refresh()
+        if self.is_on == enabled:
+            return
+
+        async with self.coordinator.client:
+            await self.coordinator.client.update_virtual_device(virtual_device)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn on the virtual device switch."""
+        del kwargs
+        await self._async_set_virtual_device_state(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn off the virtual device switch."""
+        del kwargs
+        await self._async_set_virtual_device_state(False)
