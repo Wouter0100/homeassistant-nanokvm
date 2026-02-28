@@ -70,6 +70,26 @@ SWAP_OPTIONS = {
 SWAP_VALUES = {v: k for k, v in SWAP_OPTIONS.items()}
 
 
+def _has_hid_mode(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether HID mode information is available."""
+    return coordinator.hid_mode is not None
+
+
+def _has_mouse_jiggler_state(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether mouse jiggler state is available."""
+    return coordinator.mouse_jiggler_state is not None
+
+
+def _has_oled(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether an OLED display is present."""
+    return bool(coordinator.oled_info and coordinator.oled_info.exist)
+
+
+def _has_swap_size(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether swap size information is available."""
+    return coordinator.swap_size is not None
+
+
 def _hid_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     """Return current HID mode option."""
     if coordinator.hid_mode is None:
@@ -139,7 +159,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         options=list(HID_MODE_OPTIONS.keys()),
         value_fn=_hid_mode_value,
         select_option_fn=_set_hid_mode,
-        available_fn=lambda coordinator: coordinator.hid_mode is not None,
+        available_fn=_has_hid_mode,
     ),
     NanoKVMSelectEntityDescription(
         key="mouse_jiggler_mode",
@@ -150,7 +170,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         options=list(MOUSE_JIGGLER_OPTIONS.keys()),
         value_fn=_mouse_jiggler_mode_value,
         select_option_fn=_set_mouse_jiggler_mode,
-        available_fn=lambda coordinator: coordinator.mouse_jiggler_state is not None,
+        available_fn=_has_mouse_jiggler_state,
     ),
     NanoKVMSelectEntityDescription(
         key="oled_sleep_timeout",
@@ -161,9 +181,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         options=list(OLED_SLEEP_OPTIONS.keys()),
         value_fn=_oled_sleep_value,
         select_option_fn=_set_oled_sleep,
-        available_fn=lambda coordinator: bool(
-            coordinator.oled_info and coordinator.oled_info.exist
-        ),
+        available_fn=_has_oled,
     ),
     NanoKVMSelectEntityDescription(
         key="swap_size",
@@ -174,7 +192,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         options=list(SWAP_OPTIONS.keys()),
         value_fn=_swap_size_value,
         select_option_fn=_set_swap_size,
-        available_fn=lambda coordinator: coordinator.swap_size is not None,
+        available_fn=_has_swap_size,
     ),
 )
 
