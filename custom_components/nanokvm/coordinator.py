@@ -23,7 +23,13 @@ from nanokvm.client import (
 )
 from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, HidMode
 
-from .const import CONF_USE_STATIC_HOST, DEFAULT_SCAN_INTERVAL, DOMAIN, SIGNAL_NEW_SSH_SENSORS
+from .const import (
+    CONF_USE_STATIC_HOST,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    SIGNAL_NEW_MEDIA_ENTITIES,
+    SIGNAL_NEW_SSH_SENSORS,
+)
 from .ssh_metrics import SSHMetricsCollector
 from .utils import extract_ssh_host, normalize_host
 
@@ -73,6 +79,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.memory_used_percent = None
         self.storage_total = None
         self.storage_used_percent = None
+        self.media_entities_created = False
         self.ssh_sensors_created = False
         self.ssh_metrics_collector = None
         self.hostname_info = None
@@ -152,6 +159,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
             await self._async_fetch_core_data()
             await self._async_fetch_storage_data()
+            self._async_maybe_create_media_entities()
             await self._async_refresh_ssh_data()
             return self._build_update_data()
 
@@ -245,6 +253,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.memory_used_percent = None
         self.storage_total = None
         self.storage_used_percent = None
+
+    def _async_maybe_create_media_entities(self) -> None:
+        """Signal when media-backed entities should be created."""
+        if self.media_entities_created:
+            return
+
+        if self.mounted_image and self.mounted_image.file != "":
+            _LOGGER.debug("Mounted image present, signaling to create media entities")
+            async_dispatcher_send(
+                self.hass, SIGNAL_NEW_MEDIA_ENTITIES.format(self.config_entry.entry_id)
+            )
+            self.media_entities_created = True
 
     async def _async_update_ssh_data(self) -> None:
         """Fetch data via SSH."""
