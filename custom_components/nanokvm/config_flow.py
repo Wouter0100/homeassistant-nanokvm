@@ -8,7 +8,7 @@ from typing import Any
 import aiohttp
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
@@ -39,6 +39,54 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sipeed NanoKVM."""
 
     VERSION = 1
+
+    def _async_find_matching_entry(self, *unique_ids: str) -> ConfigEntry | None:
+        """Find an existing config entry by any of the provided unique IDs."""
+        for entry in self._async_current_entries():
+            if entry.unique_id in unique_ids:
+                return entry
+        return None
+
+    def _async_handle_existing_entry(
+        self,
+        entry: ConfigEntry,
+        discovery_host: str,
+        *,
+        device_key: str | None = None,
+    ) -> ConfigFlowResult:
+        """Handle discovery for an already-configured device."""
+        current_host = entry.data[CONF_HOST]
+        use_static_host = entry.data.get(CONF_USE_STATIC_HOST, False)
+
+        if use_static_host:
+            _LOGGER.debug(
+                "Device discovered at %s is configured with static host %s, ignoring discovery",
+                discovery_host,
+                current_host,
+            )
+            return self.async_abort(reason="already_configured")
+
+        if current_host != discovery_host:
+            _LOGGER.debug(
+                "Updating discovered host for NanoKVM from %s to %s",
+                current_host,
+                discovery_host,
+            )
+        else:
+            _LOGGER.debug(
+                "Device %s is already configured with the current host, ignoring discovery",
+                discovery_host,
+            )
+
+        update_kwargs: dict[str, Any] = {
+            "data_updates": {CONF_HOST: discovery_host},
+            "reason": "already_configured",
+            "reload_even_if_entry_is_unchanged": False,
+        }
+        if device_key is not None and entry.unique_id != device_key:
+            update_kwargs["unique_id"] = device_key
+
+        return self.async_update_reload_and_abort(entry, **update_kwargs)
 
     async def add_device(
         self, device_key: str, data: dict[str, Any]
@@ -186,21 +234,12 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(device_key)
 
                 # Support both old (mDNS) and new (device_key) unique IDs.
-                for entry in self._async_current_entries():
-                    if entry.unique_id not in (device_key, discovery_hostname):
-                        continue
-                    if entry.data.get(CONF_USE_STATIC_HOST, False):
-                        _LOGGER.debug(
-                            "Device %s is configured with static host (%s), ignoring discovery",
-                            discovery_host,
-                            entry.data[CONF_HOST],
-                        )
-                    else:
-                        _LOGGER.debug(
-                            "Device %s is already configured, ignoring discovery",
-                            discovery_host,
-                        )
-                    return self.async_abort(reason="already_configured")
+                if entry := self._async_find_matching_entry(device_key, discovery_hostname):
+                    return self._async_handle_existing_entry(
+                        entry,
+                        discovery_host,
+                        device_key=device_key,
+                    )
 
                 self._abort_if_unique_id_configured()
 
@@ -211,6 +250,9 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             except NanoKVMAuthenticationFailure:
                 # Fall back to legacy ID path when authentication blocks device_key retrieval.
+                if entry := self._async_find_matching_entry(discovery_hostname):
+                    return self._async_handle_existing_entry(entry, discovery_host)
+
                 await self.async_set_unique_id(discovery_hostname)
                 self._abort_if_unique_id_configured()
                 _LOGGER.debug(
