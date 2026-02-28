@@ -11,7 +11,8 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import HWVersion
@@ -20,6 +21,7 @@ from .const import (
     DOMAIN,
     ICON_DISK,
     ICON_POWER,
+    SIGNAL_NEW_MEDIA_ENTITIES,
     ICON_WIFI,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -59,6 +61,21 @@ def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     return bool(coordinator.mounted_image and coordinator.mounted_image.file != "")
 
 
+MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
+    NanoKVMBinarySensorEntityDescription(
+        key="cdrom_mode",
+        name="CD-ROM Mode",
+        translation_key="cdrom_mode",
+        icon=ICON_DISK,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: bool(
+            coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
+        ),
+        available_fn=_has_mounted_image,
+    ),
+)
+
+
 BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     NanoKVMBinarySensorEntityDescription(
         key="power_led",
@@ -94,17 +111,6 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         available_fn=_wifi_supported,
         should_create_fn=_wifi_supported,
     ),
-    NanoKVMBinarySensorEntityDescription(
-        key="cdrom_mode",
-        name="CD-ROM Mode",
-        translation_key="cdrom_mode",
-        icon=ICON_DISK,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: bool(
-            coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
-        ),
-        available_fn=_has_mounted_image,
-    ),
 )
 
 
@@ -123,6 +129,37 @@ async def async_setup_entry(
         )
         for description in BINARY_SENSORS
         if description.should_create_fn(coordinator)
+    )
+
+    media_entities_added = False
+
+    @callback
+    def async_add_media_binary_sensors() -> None:
+        """Add media-backed binary sensors when media is first mounted."""
+        nonlocal media_entities_added
+        if media_entities_added:
+            return
+        if not _has_mounted_image(coordinator):
+            return
+
+        async_add_entities(
+            NanoKVMBinarySensor(
+                coordinator=coordinator,
+                description=description,
+            )
+            for description in MEDIA_BINARY_SENSORS
+        )
+        media_entities_added = True
+
+    if _has_mounted_image(coordinator):
+        async_add_media_binary_sensors()
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            SIGNAL_NEW_MEDIA_ENTITIES.format(entry.entry_id),
+            async_add_media_binary_sensors,
+        )
     )
 
 
