@@ -218,6 +218,10 @@
       "name": "Pressionar Botão",
       "description": "Simula pressionar um botão físico no dispositivo NanoKVM.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "button_type": {
           "name": "Tipo de Botão",
           "description": "O tipo de botão a ser pressionado (power ou reset)."
@@ -232,6 +236,10 @@
       "name": "Colar Texto",
       "description": "Cola texto via simulação de teclado HID.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "text": {
           "name": "Texto",
           "description": "O texto a ser colado. Apenas caracteres ASCII imprimíveis são suportados."
@@ -240,20 +248,42 @@
     },
     "reboot": {
       "name": "Reiniciar Sistema",
-      "description": "Reinicia o dispositivo NanoKVM."
+      "description": "Reinicia o dispositivo NanoKVM.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "reset_hdmi": {
       "name": "Resetar HDMI",
-      "description": "Reseta a conexão HDMI (relevante para versão PCIe)."
+      "description": "Reseta a conexão HDMI (relevante para versão PCIe).",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "reset_hid": {
       "name": "Resetar HID",
-      "description": "Reseta o subsistema HID."
+      "description": "Reseta o subsistema HID.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "wake_on_lan": {
       "name": "Wake on LAN",
       "description": "Envia um pacote Wake-on-LAN para o endereço MAC especificado.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "mac": {
           "name": "Endereço MAC",
           "description": "O endereço MAC para o qual enviar o pacote Wake-on-LAN."
@@ -264,6 +294,10 @@
       "name": "Definir Mouse Jiggler",
       "description": "Define o modo do mouse jiggler.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "enabled": {
           "name": "Ativado",
           "description": "Ativa ou desativa o mouse jiggler."
