@@ -183,21 +183,17 @@ async def async_setup_entry(
         if description.should_create_fn(coordinator)
     )
 
-    if coordinator.ssh_state and coordinator.ssh_state.enabled:
-        _LOGGER.debug("SSH already enabled, creating SSH sensors")
-        async_add_entities(
-            NanoKVMSensor(
-                coordinator=coordinator,
-                description=description,
-            )
-            for description in SSH_SENSORS
-        )
-        coordinator.ssh_sensors_created = True
+    ssh_entities_added = False
 
     @callback
     def async_add_ssh_sensors() -> None:
         """Add SSH sensors when SSH is enabled."""
-        _LOGGER.debug("Received signal to create SSH sensors")
+        nonlocal ssh_entities_added
+        if ssh_entities_added:
+            _LOGGER.debug("SSH sensors already registered, ignoring create signal")
+            return
+
+        _LOGGER.debug("Creating SSH sensors")
         async_add_entities(
             NanoKVMSensor(
                 coordinator=coordinator,
@@ -205,6 +201,12 @@ async def async_setup_entry(
             )
             for description in SSH_SENSORS
         )
+        ssh_entities_added = True
+        coordinator.ssh_sensors_created = True
+
+    if coordinator.ssh_state and coordinator.ssh_state.enabled:
+        _LOGGER.debug("SSH already enabled during setup, creating SSH sensors")
+        async_add_ssh_sensors()
 
     entry.async_on_unload(
         async_dispatcher_connect(
