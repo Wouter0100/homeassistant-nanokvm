@@ -20,7 +20,14 @@
       "confirm": {
         "title": "Sipeed NanoKVM découvert",
         "description": "Voulez-vous configurer l'appareil NanoKVM nommé {name} ?"
+      },
+      "reauth_confirm": {
+        "title": "Réauthentifier Sipeed NanoKVM",
+        "description": "L'intégration NanoKVM a besoin d'identifiants mis à jour pour {name}."
       }
+    },
+    "abort": {
+      "reauth_successful": "La réauthentification a réussi"
     },
     "error": {
       "cannot_connect": "Échec de la connexion",

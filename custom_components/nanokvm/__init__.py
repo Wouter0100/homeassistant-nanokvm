@@ -9,7 +9,7 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVMError
 
@@ -51,8 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await client.authenticate(username, password)
             device_info = await client.get_info()
     except NanoKVMAuthenticationFailure as err:
-        _LOGGER.error("Authentication failed: %s", err)
-        return False
+        raise ConfigEntryAuthFailed(
+            f"Authentication failed for NanoKVM at {host}"
+        ) from err
     except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError) as err:
         raise ConfigEntryNotReady(f"Failed to fetch initial device info: {err}") from err
 
