@@ -14,6 +14,7 @@ from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from nanokvm.client import (
     NanoKVMApiError,
@@ -38,6 +39,13 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+
+
+def _is_auth_failure(error: Exception) -> bool:
+    """Return whether the exception represents invalid credentials."""
+    return isinstance(error, NanoKVMAuthenticationFailure) or (
+        isinstance(error, aiohttp.ClientResponseError) and error.status == 401
+    )
 
 
 class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
@@ -132,17 +140,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             return await self._async_fetch_with_client()
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
-            if (
-                (
-                    isinstance(err, NanoKVMAuthenticationFailure)
-                    or (
-                        isinstance(err, aiohttp.ClientResponseError)
-                        and err.status == 401
-                    )
-                )
-            ):
+            if _is_auth_failure(err):
                 await self._async_reauthenticate_client(err)
-                return await self._async_fetch_with_client()
+                try:
+                    return await self._async_fetch_with_client()
+                except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as reauth_err:
+                    if _is_auth_failure(reauth_err):
+                        raise ConfigEntryAuthFailed(
+                            "Stored NanoKVM credentials are no longer valid"
+                        ) from reauth_err
+                    if isinstance(reauth_err, aiohttp.ClientResponseError):
+                        raise UpdateFailed(f"HTTP error with NanoKVM: {reauth_err}") from reauth_err
+                    raise UpdateFailed(f"Authentication failed: {reauth_err}") from reauth_err
 
             if isinstance(err, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
@@ -171,7 +180,15 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             async with new_client:
                 await new_client.authenticate(self.username, self.password)
             self.client = new_client
-        except Exception as auth_err:
+        except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as auth_err:
+            if _is_auth_failure(auth_err):
+                raise ConfigEntryAuthFailed(
+                    "Stored NanoKVM credentials are no longer valid"
+                ) from auth_err
+            if isinstance(auth_err, aiohttp.ClientResponseError):
+                raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
+            raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
             if isinstance(original_error, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
             raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
