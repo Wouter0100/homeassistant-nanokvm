@@ -5,7 +5,7 @@
         "title": "Connect to Sipeed NanoKVM",
         "description": "Set up a Sipeed NanoKVM integration.",
         "data": {
-          "host": "Host (IP address or hostname)",
+          "host": "API URL (e.g. http://192.168.1.50 or https://kvm.local)",
           "use_static_host": "Use static host only (disable mDNS discovery)"
         }
       },
