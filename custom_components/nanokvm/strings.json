@@ -28,6 +28,10 @@
       "ssl_fingerprint": {
         "title": "Verify SSL Certificate",
         "description": "The NanoKVM device at **{host}** presented a self-signed certificate with the following SHA-256 fingerprint:\n\n`{fingerprint}`\n\nDo you trust this certificate?"
+      },
+      "ssl_fingerprint_changed": {
+        "title": "SSL Certificate Changed",
+        "description": "The SSL certificate for the NanoKVM device at **{host}** has changed.\n\n**Previous fingerprint:**\n`{old_fingerprint}`\n\n**New fingerprint:**\n`{new_fingerprint}`\n\nThis could mean the device generated a new certificate, or that something is intercepting the connection. Only accept if you expect this change."
       }
     },
     "abort": {
