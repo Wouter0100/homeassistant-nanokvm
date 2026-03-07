@@ -4,8 +4,11 @@ from __future__ import annotations
 
 def normalize_host(host: str) -> str:
     """Normalize a host value to an API base URL."""
+    if not host.startswith(("http://", "https://")):
+        host = f"http://{host}"
+
     if not host.endswith("/api/"):
-        host = host.rstrip("/") + "/api/"
+        host = f"{host}api/" if host.endswith("/") else f"{host}/api/"
 
     return host
 
