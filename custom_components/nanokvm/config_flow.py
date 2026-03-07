@@ -179,6 +179,8 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_confirm()
             if return_step == "auth":
                 return await self.async_step_auth()
+            if return_step == "reauth_finish":
+                return await self.async_step_reauth_finish()
 
         return self.async_show_form(
             step_id="ssl_fingerprint",
