@@ -8,6 +8,7 @@ CONF_HOST = "host"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_USE_STATIC_HOST = "use_static_host"
+CONF_SSL_FINGERPRINT = "ssl_fingerprint"
 
 # Default values
 DEFAULT_USERNAME = "admin"

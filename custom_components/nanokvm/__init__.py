@@ -13,7 +13,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVMError
 
-from .const import CONF_USE_STATIC_HOST, DOMAIN
+from .const import CONF_SSL_FINGERPRINT, CONF_USE_STATIC_HOST, DOMAIN
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .services import async_register_services, async_unregister_services
 from .utils import normalize_host
@@ -44,7 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         use_static_host,
     )
 
-    client = NanoKVMClient(normalize_host(host))
+    ssl_fingerprint = entry.data.get(CONF_SSL_FINGERPRINT)
+    client = NanoKVMClient(normalize_host(host), ssl_fingerprint=ssl_fingerprint)
 
     try:
         async with client:
@@ -53,6 +54,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except NanoKVMAuthenticationFailure as err:
         raise ConfigEntryAuthFailed(
             f"Authentication failed for NanoKVM at {host}"
+        ) from err
+    except (aiohttp.ServerFingerprintMismatch,
+            aiohttp.ClientConnectorCertificateError) as err:
+        raise ConfigEntryAuthFailed(
+            f"SSL certificate changed for NanoKVM at {host}"
         ) from err
     except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError) as err:
         raise ConfigEntryNotReady(f"Failed to fetch initial device info: {err}") from err

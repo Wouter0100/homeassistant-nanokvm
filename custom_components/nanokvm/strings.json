@@ -24,6 +24,10 @@
       "reauth_confirm": {
         "title": "Reauthenticate Sipeed NanoKVM",
         "description": "The NanoKVM integration needs updated credentials for {name}."
+      },
+      "ssl_fingerprint": {
+        "title": "Verify SSL Certificate",
+        "description": "The NanoKVM device at **{host}** presented a self-signed certificate with the following SHA-256 fingerprint:\n\n`{fingerprint}`\n\nDo you trust this certificate?"
       }
     },
     "abort": {
@@ -32,7 +36,8 @@
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "ssl_certificate_changed": "The SSL certificate has changed"
     }
   }
 }

@@ -14,8 +14,10 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVMError
+from nanokvm.utils import async_fetch_remote_fingerprint
 
 from .const import (
+    CONF_SSL_FINGERPRINT,
     CONF_USE_STATIC_HOST,
     DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
@@ -28,12 +30,18 @@ _LOGGER = logging.getLogger(__name__)
 
 async def validate_input(data: dict[str, Any]) -> str:
     """Validate the user input allows us to connect."""
-    async with NanoKVMClient(normalize_host(data[CONF_HOST])) as client:
+    async with NanoKVMClient(
+        normalize_host(data[CONF_HOST]),
+        ssl_fingerprint=data.get(CONF_SSL_FINGERPRINT),
+    ) as client:
         try:
             await client.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD])
             device_info = await client.get_info()
         except NanoKVMAuthenticationFailure as err:
             raise InvalidAuth from err
+        except (aiohttp.ClientConnectorCertificateError,
+                aiohttp.ServerFingerprintMismatch) as err:
+            raise SSLCertificateChanged from err
         except (aiohttp.ClientConnectorError, asyncio.TimeoutError,
                 aiohttp.ClientError, NanoKVMError) as err:
             raise CannotConnect from err
@@ -45,6 +53,14 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sipeed NanoKVM."""
 
     VERSION = 1
+    MINOR_VERSION = 2
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        super().__init__()
+        self.data: dict[str, Any] = {}
+        self._discovered_fingerprint: str | None = None
+        self._ssl_return_step: str | None = None
 
     def _get_reauth_entry(self) -> ConfigEntry:
         """Return the config entry currently undergoing reauthentication."""
@@ -130,6 +146,46 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(title=INTEGRATION_TITLE, data=data)
 
+    async def _async_fetch_and_redirect_ssl(
+        self, return_step: str
+    ) -> ConfigFlowResult:
+        """Fetch the remote fingerprint and redirect to the SSL confirmation step."""
+        self._ssl_return_step = return_step
+        self._discovered_fingerprint = await async_fetch_remote_fingerprint(
+            normalize_host(self.data[CONF_HOST])
+        )
+        return await self.async_step_ssl_fingerprint()
+
+    async def async_step_ssl_fingerprint(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask the user to confirm the SSL certificate fingerprint."""
+        if user_input is not None:
+            self.data[CONF_SSL_FINGERPRINT] = self._discovered_fingerprint
+            return_step = self._ssl_return_step
+            self._ssl_return_step = None
+
+            if return_step == "confirm":
+                return await self.async_step_confirm()
+            if return_step == "auth":
+                return await self.async_step_auth()
+            if return_step == "reauth_confirm":
+                return await self.async_step_reauth_confirm()
+
+        # Format fingerprint with colons for display
+        fingerprint = self._discovered_fingerprint
+        formatted = ":".join(
+            fingerprint[i : i + 2] for i in range(0, len(fingerprint), 2)
+        )
+
+        return self.async_show_form(
+            step_id="ssl_fingerprint",
+            description_placeholders={
+                "host": self.data[CONF_HOST],
+                "fingerprint": formatted,
+            },
+        )
+
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Start a reauthentication flow for an existing entry."""
         del entry_data
@@ -153,14 +209,16 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
         if user_input is not None:
-            data = entry.data | user_input
+            self.data = dict(entry.data) | user_input
 
             try:
-                device_key = await validate_input(data)
+                device_key = await validate_input(self.data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
+            except SSLCertificateChanged:
+                return await self._async_fetch_and_redirect_ssl("reauth_confirm")
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -178,6 +236,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                     "data_updates": {
                         CONF_USERNAME: user_input[CONF_USERNAME],
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        CONF_SSL_FINGERPRINT: self.data.get(CONF_SSL_FINGERPRINT),
                     },
                 }
                 if entry.unique_id != device_key:
@@ -221,11 +280,14 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 self.data = user_input
                 return await self.async_step_auth()
+            except SSLCertificateChanged:
+                self.data = data
+                return await self._async_fetch_and_redirect_ssl("confirm")
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                self.data = data            
+                self.data = data
                 return await self.async_step_confirm()
 
         return self.async_show_form(
@@ -253,6 +315,8 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                     self.data[CONF_HOST],
                 )
                 return await self.async_step_auth()
+            except SSLCertificateChanged:
+                return await self._async_fetch_and_redirect_ssl("confirm")
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -287,6 +351,9 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
+            except SSLCertificateChanged:
+                self.data = data
+                return await self._async_fetch_and_redirect_ssl("auth")
             except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -294,8 +361,8 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.add_device(device_key, data)
 
         return self.async_show_form(
-            step_id="auth", 
-            data_schema=schema, 
+            step_id="auth",
+            data_schema=schema,
             errors=errors,
         )
 
@@ -366,3 +433,7 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
+
+
+class SSLCertificateChanged(HomeAssistantError):
+    """Error to indicate the SSL certificate has changed."""

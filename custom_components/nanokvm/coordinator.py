@@ -25,6 +25,7 @@ from nanokvm.client import (
 from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, HidMode
 
 from .const import (
+    CONF_SSL_FINGERPRINT,
     CONF_USE_STATIC_HOST,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -139,6 +140,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         """Fetch data once, handling reauthentication when needed."""
         try:
             return await self._async_fetch_with_client()
+        except (aiohttp.ServerFingerprintMismatch,
+                aiohttp.ClientConnectorCertificateError) as err:
+            raise ConfigEntryAuthFailed(
+                "SSL certificate changed for NanoKVM"
+            ) from err
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if _is_auth_failure(err):
                 await self._async_reauthenticate_client(err)
@@ -175,7 +181,8 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""
         host = normalize_host(self.config_entry.data[CONF_HOST])
-        new_client = NanoKVMClient(host)
+        ssl_fingerprint = self.config_entry.data.get(CONF_SSL_FINGERPRINT)
+        new_client = NanoKVMClient(host, ssl_fingerprint=ssl_fingerprint)
         try:
             async with new_client:
                 await new_client.authenticate(self.username, self.password)
