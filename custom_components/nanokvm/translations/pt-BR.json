@@ -20,12 +20,28 @@
       "confirm": {
         "title": "Sipeed NanoKVM detectado",
         "description": "Deseja configurar o dispositivo NanoKVM chamado {name}?"
+      },
+      "reauth_confirm": {
+        "title": "Reautenticar Sipeed NanoKVM",
+        "description": "A integração NanoKVM precisa de credenciais atualizadas para {name}."
+      },
+      "ssl_fingerprint": {
+        "title": "Verificar certificado SSL",
+        "description": "O dispositivo NanoKVM em **{host}** apresentou um certificado autoassinado com a seguinte impressão digital SHA-256:\n\n`{fingerprint}`\n\nVocê confia neste certificado?"
+      },
+      "ssl_fingerprint_changed": {
+        "title": "Certificado SSL alterado",
+        "description": "O certificado SSL do dispositivo NanoKVM em **{host}** foi alterado.\n\n**Impressão digital anterior:**\n`{old_fingerprint}`\n\n**Nova impressão digital:**\n`{new_fingerprint}`\n\nIsso pode significar que o dispositivo gerou um novo certificado ou que algo está interceptando a conexão. Aceite apenas se você esperava essa mudança."
       }
+    },
+    "abort": {
+      "reauth_successful": "A reautenticação foi concluída com sucesso"
     },
     "error": {
       "cannot_connect": "Falha ao conectar",
       "invalid_auth": "Autenticação inválida",
-      "unknown": "Erro inesperado"
+      "unknown": "Erro inesperado",
+      "ssl_certificate_changed": "O certificado SSL foi alterado"
     }
   },
   "entity": {
@@ -218,6 +234,10 @@
       "name": "Pressionar Botão",
       "description": "Simula pressionar um botão físico no dispositivo NanoKVM.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "button_type": {
           "name": "Tipo de Botão",
           "description": "O tipo de botão a ser pressionado (power ou reset)."
@@ -232,6 +252,10 @@
       "name": "Colar Texto",
       "description": "Cola texto via simulação de teclado HID.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "text": {
           "name": "Texto",
           "description": "O texto a ser colado. Apenas caracteres ASCII imprimíveis são suportados."
@@ -240,20 +264,42 @@
     },
     "reboot": {
       "name": "Reiniciar Sistema",
-      "description": "Reinicia o dispositivo NanoKVM."
+      "description": "Reinicia o dispositivo NanoKVM.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "reset_hdmi": {
       "name": "Resetar HDMI",
-      "description": "Reseta a conexão HDMI (relevante para versão PCIe)."
+      "description": "Reseta a conexão HDMI (relevante para versão PCIe).",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "reset_hid": {
       "name": "Resetar HID",
-      "description": "Reseta o subsistema HID."
+      "description": "Reseta o subsistema HID.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        }
+      }
     },
     "wake_on_lan": {
       "name": "Wake on LAN",
       "description": "Envia um pacote Wake-on-LAN para o endereço MAC especificado.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "mac": {
           "name": "Endereço MAC",
           "description": "O endereço MAC para o qual enviar o pacote Wake-on-LAN."
@@ -264,6 +310,10 @@
       "name": "Definir Mouse Jiggler",
       "description": "Define o modo do mouse jiggler.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "enabled": {
           "name": "Ativado",
           "description": "Ativa ou desativa o mouse jiggler."

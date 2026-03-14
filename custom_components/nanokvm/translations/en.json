@@ -5,7 +5,7 @@
         "title": "Connect to Sipeed NanoKVM",
         "description": "Set up a Sipeed NanoKVM integration.",
         "data": {
-          "host": "Host (IP address or hostname)",
+          "host": "API URL",
           "use_static_host": "Use static host only (disable mDNS discovery)"
         }
       },
@@ -20,12 +20,28 @@
       "confirm": {
         "title": "Discovered Sipeed NanoKVM",
         "description": "Do you want to set up the NanoKVM device named {name}?"
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Sipeed NanoKVM",
+        "description": "The NanoKVM integration needs updated credentials for {name}."
+      },
+      "ssl_fingerprint": {
+        "title": "Verify SSL Certificate",
+        "description": "The NanoKVM device at **{host}** presented a self-signed certificate with the following SHA-256 fingerprint:\n\n`{fingerprint}`\n\nDo you trust this certificate?"
+      },
+      "ssl_fingerprint_changed": {
+        "title": "SSL Certificate Changed",
+        "description": "The SSL certificate for the NanoKVM device at **{host}** has changed.\n\n**Previous fingerprint:**\n`{old_fingerprint}`\n\n**New fingerprint:**\n`{new_fingerprint}`\n\nThis could mean the device generated a new certificate, or that something is intercepting the connection. Only accept if you expect this change."
       }
+    },
+    "abort": {
+      "reauth_successful": "Reauthentication was successful"
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "ssl_certificate_changed": "The SSL certificate has changed"
     }
   },
   "entity": {
@@ -218,6 +234,10 @@
       "name": "Push Button",
       "description": "Simulate pushing a hardware button on the NanoKVM device.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        },
         "button_type": {
           "name": "Button Type",
           "description": "The type of button to push (power or reset)."
@@ -232,6 +252,10 @@
       "name": "Paste Text",
       "description": "Paste text via HID keyboard simulation.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        },
         "text": {
           "name": "Text",
           "description": "The text to paste. Only ASCII printable characters are supported."
@@ -240,20 +264,42 @@
     },
     "reboot": {
       "name": "Reboot System",
-      "description": "Reboot the NanoKVM device."
+      "description": "Reboot the NanoKVM device.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
     },
     "reset_hdmi": {
       "name": "Reset HDMI",
-      "description": "Reset the HDMI connection (relevant for PCIe version)."
+      "description": "Reset the HDMI connection (relevant for PCIe version).",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
     },
     "reset_hid": {
       "name": "Reset HID",
-      "description": "Reset the HID subsystem."
+      "description": "Reset the HID subsystem.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
     },
     "wake_on_lan": {
       "name": "Wake on LAN",
       "description": "Send a Wake-on-LAN packet to the specified MAC address.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        },
         "mac": {
           "name": "MAC Address",
           "description": "The MAC address to send the Wake-on-LAN packet to."
@@ -264,6 +310,10 @@
       "name": "Set Mouse Jiggler",
       "description": "Configure the mouse jiggler state and mode.",
       "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        },
         "enabled": {
           "name": "Enabled",
           "description": "Enable or disable the mouse jiggler."

@@ -9,13 +9,14 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVMError
 
-from .const import CONF_USE_STATIC_HOST, DOMAIN
+from .const import CONF_SSL_FINGERPRINT, CONF_USE_STATIC_HOST, DOMAIN
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .services import async_register_services, async_unregister_services
-from .utils import normalize_host
+from .utils import api_connection_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,18 +44,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         use_static_host,
     )
 
-    client = NanoKVMClient(normalize_host(host))
+    ssl_fingerprint = entry.data.get(CONF_SSL_FINGERPRINT)
+    options = api_connection_options(host, ssl_fingerprint)
+    last_error: Exception | None = None
+    client: NanoKVMClient | None = None
+    device_info = None
 
-    try:
-        async with client:
-            await client.authenticate(username, password)
-            device_info = await client.get_info()
-    except NanoKVMAuthenticationFailure as err:
-        _LOGGER.error("Authentication failed: %s", err)
-        return False
-    except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError) as err:
-        _LOGGER.error("Failed to fetch initial device info: %s", err)
-        return False
+    for index, option in enumerate(options):
+        candidate_client = NanoKVMClient(
+            option.base_url,
+            ssl_fingerprint=option.ssl_fingerprint,
+        )
+        try:
+            async with candidate_client:
+                await candidate_client.authenticate(username, password)
+                device_info = await candidate_client.get_info()
+            client = candidate_client
+            break
+        except NanoKVMAuthenticationFailure as err:
+            raise ConfigEntryAuthFailed(
+                f"Authentication failed for NanoKVM at {host}"
+            ) from err
+        except (
+            aiohttp.ServerFingerprintMismatch,
+            aiohttp.ClientConnectorCertificateError,
+        ) as err:
+            if option.scheme == "http" and index < len(options) - 1:
+                last_error = err
+                continue
+            raise ConfigEntryAuthFailed(
+                f"SSL certificate changed for NanoKVM at {host}"
+            ) from err
+        except aiohttp.ClientConnectorError as err:
+            last_error = err
+            if index < len(options) - 1:
+                continue
+            break
+        except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError) as err:
+            last_error = err
+            break
+
+    if client is None or device_info is None:
+        assert last_error is not None
+        raise ConfigEntryNotReady(
+            f"Failed to fetch initial device info: {last_error}"
+        ) from last_error
 
     coordinator = NanoKVMDataUpdateCoordinator(
         hass,

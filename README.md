@@ -98,17 +98,18 @@ For full call examples, see [`SERVICES.md`](SERVICES.md).
 
 | Service | Parameters | Description |
 | --- | --- | --- |
-| `push_button` | `button_type`, `duration` | Simulate a button press |
-| `paste_text` | `text` | Paste text via HID keyboard (ASCII printable only) |
-| `reboot` | - | Reboot NanoKVM |
-| `reset_hdmi` | - | Reset HDMI subsystem |
-| `reset_hid` | - | Reset HID subsystem |
-| `wake_on_lan` | `mac` | Send Wake-on-LAN packet |
-| `set_mouse_jiggler` | `enabled`, `mode` | Set mouse jiggler state |
+| `push_button` | `host`, `button_type`, `duration` | Simulate a button press |
+| `paste_text` | `host`, `text` | Paste text via HID keyboard (ASCII printable only) |
+| `reboot` | `host` | Reboot NanoKVM |
+| `reset_hdmi` | `host` | Reset HDMI subsystem |
+| `reset_hid` | `host` | Reset HID subsystem |
+| `wake_on_lan` | `host`, `mac` | Send Wake-on-LAN packet |
+| `set_mouse_jiggler` | `host`, `enabled`, `mode` | Set mouse jiggler state |
 
 Notes:
 
 - `push_button.duration` range is `100-5000` ms.
+- `host` is optional when one NanoKVM is configured and required when multiple devices are configured.
 
 ## Example Automation
 

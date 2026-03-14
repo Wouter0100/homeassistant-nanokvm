@@ -24,6 +24,7 @@ from .const import (
     ICON_DISK,
     ICON_IMAGE,
     ICON_NETWORK,
+    SIGNAL_NEW_MEDIA_ENTITIES,
     ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
 )
@@ -94,7 +95,7 @@ class NanoKVMSensorEntityDescription(SensorEntityDescription):
     attributes_fn: Callable[[NanoKVMDataUpdateCoordinator], dict[str, Any]] = lambda _: {}
 
 
-SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
+MEDIA_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="mounted_image",
         name="Mounted Image",
@@ -105,6 +106,9 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         should_create_fn=_has_mounted_image,
         available_fn=_has_mounted_image,
     ),
+)
+
+SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="tailscale_state",
         name="Tailscale",
@@ -183,21 +187,43 @@ async def async_setup_entry(
         if description.should_create_fn(coordinator)
     )
 
-    if coordinator.ssh_state and coordinator.ssh_state.enabled:
-        _LOGGER.debug("SSH already enabled, creating SSH sensors")
+    media_entities_added = False
+
+    @callback
+    def async_add_media_sensors() -> None:
+        """Add media-backed sensors when media is first mounted."""
+        nonlocal media_entities_added
+        if media_entities_added:
+            _LOGGER.debug("Media sensors already registered, ignoring create signal")
+            return
+        if not _has_mounted_image(coordinator):
+            return
+
+        _LOGGER.debug("Creating media sensors")
         async_add_entities(
             NanoKVMSensor(
                 coordinator=coordinator,
                 description=description,
             )
-            for description in SSH_SENSORS
+            for description in MEDIA_SENSORS
         )
-        coordinator.ssh_sensors_created = True
+        media_entities_added = True
+
+    if _has_mounted_image(coordinator):
+        _LOGGER.debug("Mounted image already present during setup, creating media sensors")
+        async_add_media_sensors()
+
+    ssh_entities_added = False
 
     @callback
     def async_add_ssh_sensors() -> None:
         """Add SSH sensors when SSH is enabled."""
-        _LOGGER.debug("Received signal to create SSH sensors")
+        nonlocal ssh_entities_added
+        if ssh_entities_added:
+            _LOGGER.debug("SSH sensors already registered, ignoring create signal")
+            return
+
+        _LOGGER.debug("Creating SSH sensors")
         async_add_entities(
             NanoKVMSensor(
                 coordinator=coordinator,
@@ -205,7 +231,18 @@ async def async_setup_entry(
             )
             for description in SSH_SENSORS
         )
+        ssh_entities_added = True
+        coordinator.ssh_sensors_created = True
 
+    if coordinator.ssh_state and coordinator.ssh_state.enabled:
+        _LOGGER.debug("SSH already enabled during setup, creating SSH sensors")
+        async_add_ssh_sensors()
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, SIGNAL_NEW_MEDIA_ENTITIES.format(entry.entry_id), async_add_media_sensors
+        )
+    )
     entry.async_on_unload(
         async_dispatcher_connect(
             hass, SIGNAL_NEW_SSH_SENSORS.format(entry.entry_id), async_add_ssh_sensors

@@ -5,7 +5,7 @@
         "title": "Connect to Sipeed NanoKVM",
         "description": "Set up a Sipeed NanoKVM integration.",
         "data": {
-          "host": "Host (IP address or hostname)",
+          "host": "API URL",
           "use_static_host": "Use static host only (disable mDNS discovery)"
         }
       },
@@ -20,12 +20,28 @@
       "confirm": {
         "title": "Discovered Sipeed NanoKVM",
         "description": "Do you want to set up the NanoKVM device named {name}?"
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Sipeed NanoKVM",
+        "description": "The NanoKVM integration needs updated credentials for {name}."
+      },
+      "ssl_fingerprint": {
+        "title": "Verify SSL Certificate",
+        "description": "The NanoKVM device at **{host}** presented a self-signed certificate with the following SHA-256 fingerprint:\n\n`{fingerprint}`\n\nDo you trust this certificate?"
+      },
+      "ssl_fingerprint_changed": {
+        "title": "SSL Certificate Changed",
+        "description": "The SSL certificate for the NanoKVM device at **{host}** has changed.\n\n**Previous fingerprint:**\n`{old_fingerprint}`\n\n**New fingerprint:**\n`{new_fingerprint}`\n\nThis could mean the device generated a new certificate, or that something is intercepting the connection. Only accept if you expect this change."
       }
+    },
+    "abort": {
+      "reauth_successful": "Reauthentication was successful"
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "ssl_certificate_changed": "The SSL certificate has changed"
     }
   }
 }
