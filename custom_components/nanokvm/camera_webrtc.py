@@ -19,6 +19,7 @@ from homeassistant.components.camera.webrtc import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from nanokvm.client import NanoKVMClient
 from webrtc_models import RTCIceCandidateInit
 from yarl import URL
 
@@ -26,7 +27,7 @@ from yarl import URL
 class _NanoKVMWebRTCSession:
     """Internal state for an active NanoKVM WebRTC signaling session."""
 
-    http_session: aiohttp.ClientSession
+    client: NanoKVMClient
     websocket: aiohttp.ClientWebSocketResponse
     reader_task: asyncio.Task[None] | None = None
 
@@ -38,6 +39,10 @@ class _WebSocketTimeoutKwargs(TypedDict, total=False):
     receive_timeout: float
 
 
+StreamClientFactory = Callable[[], NanoKVMClient | None]
+AuthenticateClientCallable = Callable[[NanoKVMClient], Awaitable[None]]
+
+
 class NanoKVMWebRTCManager:
     """Manage native Home Assistant WebRTC signaling for NanoKVM cameras."""
 
@@ -46,10 +51,8 @@ class NanoKVMWebRTCManager:
         *,
         logger: logging.Logger,
         hass_provider: Callable[[], HomeAssistant | None],
-        connection_info_provider: Callable[[], tuple[str, str, str] | None],
-        authenticate_stream: Callable[
-            [aiohttp.ClientSession, str, str, str], Awaitable[str]
-        ],
+        client_factory: StreamClientFactory,
+        authenticate_client: AuthenticateClientCallable,
         login_timeout_seconds: int = 15,
         websocket_heartbeat_seconds: float = 30.0,
         max_pending_ice_candidates: int = 64,
@@ -57,8 +60,8 @@ class NanoKVMWebRTCManager:
         """Initialize WebRTC manager."""
         self._logger = logger
         self._hass_provider = hass_provider
-        self._connection_info_provider = connection_info_provider
-        self._authenticate_stream = authenticate_stream
+        self._client_factory = client_factory
+        self._authenticate_client = authenticate_client
         self._login_timeout_seconds = login_timeout_seconds
         self._websocket_heartbeat_seconds = websocket_heartbeat_seconds
         self._max_pending_ice_candidates = max_pending_ice_candidates
@@ -66,11 +69,10 @@ class NanoKVMWebRTCManager:
         self._pending_candidates: dict[str, list[RTCIceCandidateInit]] = {}
         self._session_lock = asyncio.Lock()
 
-    def _webrtc_stream_url(self, base_url: str) -> str:
+    def _webrtc_stream_url(self, base_url: URL) -> str:
         """Build NanoKVM h264 WebRTC websocket URL from API base URL."""
-        api_url = URL(base_url)
-        ws_scheme = "wss" if api_url.scheme == "https" else "ws"
-        return str(api_url.with_scheme(ws_scheme) / "stream/h264")
+        ws_scheme = "wss" if base_url.scheme == "https" else "ws"
+        return str(base_url.with_scheme(ws_scheme) / "stream/h264")
 
     def _websocket_timeout_kwargs(self) -> _WebSocketTimeoutKwargs:
         """Return websocket timeout kwargs compatible with installed aiohttp."""
@@ -83,18 +85,14 @@ class NanoKVMWebRTCManager:
         self, offer_sdp: str, session_id: str, send_message: WebRTCSendMessage
     ) -> None:
         """Handle Home Assistant WebRTC offer using NanoKVM /stream/h264 signaling."""
-        conn = self._connection_info_provider()
-        if conn is None:
-            raise HomeAssistantError("Missing NanoKVM connection info")
+        client = self._client_factory()
+        if client is None:
+            raise HomeAssistantError("Missing NanoKVM WebRTC client")
 
         hass = self._hass_provider()
         if hass is None:
             raise HomeAssistantError("Home Assistant is not ready for WebRTC")
 
-        base_url, username, password = conn
-        ws_url = self._webrtc_stream_url(base_url)
-
-        http_session = aiohttp.ClientSession()
         registered = False
 
         # Frontend can send ICE candidates before signaling websocket is ready.
@@ -102,18 +100,26 @@ class NanoKVMWebRTCManager:
             self._pending_candidates.setdefault(session_id, [])
 
         try:
-            token = await self._authenticate_stream(
-                http_session, base_url, username, password
-            )
-            websocket = await http_session.ws_connect(
-                ws_url,
-                headers={"Cookie": f"nano-kvm-token={token}"},
+            await client.__aenter__()
+            await self._authenticate_client(client)
+
+            if client.token is None:
+                raise RuntimeError("NanoKVM client authentication did not produce a token")
+            if client._session is None or client._ssl_config is None:
+                raise RuntimeError("NanoKVM client transport is not initialized")
+
+            # The library does not expose WebRTC signaling yet, so reuse its
+            # configured session, URL, and SSL settings directly.
+            websocket = await client._session.ws_connect(
+                self._webrtc_stream_url(client.url),
+                headers={"Cookie": f"nano-kvm-token={client.token}"},
                 heartbeat=self._websocket_heartbeat_seconds,
+                ssl=client._ssl_config,
                 **self._websocket_timeout_kwargs(),
             )
 
             webrtc_session = _NanoKVMWebRTCSession(
-                http_session=http_session,
+                client=client,
                 websocket=websocket,
             )
             async with self._session_lock:
@@ -134,7 +140,7 @@ class NanoKVMWebRTCManager:
                 async with self._session_lock:
                     self._pending_candidates.pop(session_id, None)
                 with suppress(Exception):
-                    await http_session.close()
+                    await client.__aexit__(None, None, None)
             raise HomeAssistantError(
                 f"Unable to establish NanoKVM WebRTC signaling: {err}"
             ) from err
@@ -292,7 +298,7 @@ class NanoKVMWebRTCManager:
                 await session.websocket.close()
 
         with suppress(Exception):
-            await session.http_session.close()
+            await session.client.__aexit__(None, None, None)
 
     def close_webrtc_session(self, session_id: str) -> None:
         """Close a WebRTC session when frontend unsubscribes."""

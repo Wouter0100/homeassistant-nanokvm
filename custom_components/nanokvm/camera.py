@@ -14,14 +14,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from nanokvm.utils import obfuscate_password
+from nanokvm.client import NanoKVMClient
 from webrtc_models import RTCIceCandidateInit
 
 from .camera_webrtc import NanoKVMWebRTCManager
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .const import DOMAIN, ICON_HDMI
+from .const import CONF_SSL_FINGERPRINT, DOMAIN, ICON_HDMI
 from .entity import NanoKVMEntity
-from .utils import normalize_host
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,70 +87,69 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
         self._webrtc = NanoKVMWebRTCManager(
             logger=_LOGGER,
             hass_provider=lambda: self.hass,
-            connection_info_provider=self._stream_connection_info,
-            authenticate_stream=self._authenticate_stream,
+            client_factory=self._create_stream_client,
+            authenticate_client=self._authenticate_stream_client,
             login_timeout_seconds=LOGIN_TIMEOUT_SECONDS,
             websocket_heartbeat_seconds=WEBSOCKET_HEARTBEAT_SECONDS,
             max_pending_ice_candidates=MAX_PENDING_ICE_CANDIDATES,
         )
 
-    def _stream_connection_info(self) -> tuple[str, str, str] | None:
-        """Return normalized base URL and credentials for stream auth/signaling."""
+    def _stream_credentials(self) -> tuple[str, str] | None:
+        """Return configured stream credentials."""
         config_entry = self.coordinator.config_entry
         if not config_entry or not config_entry.data:
             return None
 
-        host = config_entry.data.get("host")
         username = config_entry.data.get("username")
         password = config_entry.data.get("password")
 
-        if not host or not username or not password:
+        if not username or not password:
             return None
 
-        return normalize_host(host), username, password
+        return username, password
 
-    async def _authenticate_stream(
-        self,
-        session: aiohttp.ClientSession,
-        base_url: str,
-        username: str,
-        password: str,
-    ) -> str:
-        """Authenticate directly against NanoKVM API and return JWT token."""
-        async with session.post(
-            f"{base_url}auth/login",
-            json={
-                "username": username,
-                "password": obfuscate_password(password),
-            },
-            timeout=aiohttp.ClientTimeout(total=LOGIN_TIMEOUT_SECONDS),
-            raise_for_status=True,
-        ) as response:
-            payload = await response.json(content_type=None)
+    def _create_stream_client(self) -> NanoKVMClient | None:
+        """Create a NanoKVM client using the integration's resolved transport."""
+        config_entry = self.coordinator.config_entry
+        if not config_entry or not config_entry.data:
+            return None
 
-        code = payload.get("code") if isinstance(payload, dict) else None
-        token = payload.get("data", {}).get("token") if isinstance(payload, dict) else None
-        if code != 0 or not token:
-            msg = payload.get("msg", "unknown") if isinstance(payload, dict) else "unknown"
-            raise RuntimeError(f"Stream authentication failed: code={code}, msg={msg}")
-        return token
+        active_url = str(self.coordinator.client.url)
+        ssl_fingerprint = (
+            config_entry.data.get(CONF_SSL_FINGERPRINT)
+            if self.coordinator.client.url.scheme == "https"
+            else None
+        )
+        return NanoKVMClient(
+            active_url,
+            token=self.coordinator.client.token,
+            ssl_fingerprint=ssl_fingerprint,
+        )
+
+    async def _authenticate_stream_client(self, client: NanoKVMClient) -> None:
+        """Authenticate a stream client using the configured credentials."""
+        credentials = self._stream_credentials()
+        if credentials is None:
+            raise RuntimeError("Missing NanoKVM stream credentials")
+
+        if client.token:
+            return
+
+        username, password = credentials
+        await client.authenticate(username, password)
 
     async def _async_read_snapshot_frame(self) -> bytes | None:
         """Read one JPEG frame from NanoKVM MJPEG endpoint for snapshots."""
-        conn = self._stream_connection_info()
-        if conn is None:
+        client = self._create_stream_client()
+        if client is None:
             return None
 
-        base_url, username, password = conn
-        stream_url = f"{base_url}stream/mjpeg"
-
-        async with aiohttp.ClientSession() as session:
-            token = await self._authenticate_stream(session, base_url, username, password)
-            async with session.get(
-                stream_url,
-                cookies={"nano-kvm-token": token},
-                timeout=aiohttp.ClientTimeout(total=None, sock_read=None),
-                raise_for_status=True,
+        async with client:
+            await self._authenticate_stream_client(client)
+            # Reuse NanoKVMClient's authenticated session and SSL config for MJPEG.
+            async with client._request(
+                aiohttp.hdrs.METH_GET,
+                "/stream/mjpeg",
             ) as upstream:
                 reader = MultipartReader.from_response(upstream)
 
