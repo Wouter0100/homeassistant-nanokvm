@@ -32,7 +32,7 @@ from .const import (
     SERVICE_WAKE_ON_LAN,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .utils import normalize_host
+from .utils import host_match_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,12 +102,12 @@ def async_register_services(hass: HomeAssistant) -> None:
                 "Multiple NanoKVM devices are configured; specify the host field to target one device"
             )
 
-        normalized_requested_host = normalize_host(requested_host)
+        requested_host_key = host_match_key(requested_host)
         matches = [
             coordinator
             for coordinator in coordinators
-            if normalize_host(coordinator.config_entry.data[CONF_HOST])
-            == normalized_requested_host
+            if host_match_key(coordinator.config_entry.data[CONF_HOST])
+            == requested_host_key
         ]
 
         if not matches:

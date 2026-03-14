@@ -33,7 +33,7 @@ from .const import (
     SIGNAL_NEW_SSH_SENSORS,
 )
 from .ssh_metrics import SSHMetricsCollector
-from .utils import extract_ssh_host, normalize_host
+from .utils import api_connection_options, extract_ssh_host
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,11 +140,19 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         """Fetch data once, handling reauthentication when needed."""
         try:
             return await self._async_fetch_with_client()
-        except (aiohttp.ServerFingerprintMismatch,
-                aiohttp.ClientConnectorCertificateError) as err:
+        except (
+            aiohttp.ServerFingerprintMismatch,
+            aiohttp.ClientConnectorCertificateError,
+        ) as err:
+            if self.client.url.scheme == "http" and await self._async_failover_client(err):
+                return await self._async_fetch_with_client()
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
+        except aiohttp.ClientConnectorError as err:
+            if await self._async_failover_client(err):
+                return await self._async_fetch_with_client()
+            raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if _is_auth_failure(err):
                 await self._async_reauthenticate_client(err)
@@ -180,25 +188,103 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""
-        host = normalize_host(self.config_entry.data[CONF_HOST])
-        ssl_fingerprint = self.config_entry.data.get(CONF_SSL_FINGERPRINT)
-        new_client = NanoKVMClient(host, ssl_fingerprint=ssl_fingerprint)
-        try:
-            async with new_client:
-                await new_client.authenticate(self.username, self.password)
-            self.client = new_client
-        except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as auth_err:
-            if _is_auth_failure(auth_err):
+        options = api_connection_options(
+            self.config_entry.data[CONF_HOST],
+            self.config_entry.data.get(CONF_SSL_FINGERPRINT),
+            preferred_url=str(self.client.url),
+        )
+        last_error: Exception | None = None
+
+        for index, option in enumerate(options):
+            new_client = NanoKVMClient(
+                option.base_url,
+                ssl_fingerprint=option.ssl_fingerprint,
+            )
+            try:
+                async with new_client:
+                    await new_client.authenticate(self.username, self.password)
+                self.client = new_client
+                return
+            except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as auth_err:
+                if _is_auth_failure(auth_err):
+                    raise ConfigEntryAuthFailed(
+                        "Stored NanoKVM credentials are no longer valid"
+                    ) from auth_err
+                if isinstance(auth_err, aiohttp.ClientResponseError):
+                    raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
+                raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
+            except (
+                aiohttp.ServerFingerprintMismatch,
+                aiohttp.ClientConnectorCertificateError,
+            ) as auth_err:
+                if option.scheme == "http" and index < len(options) - 1:
+                    last_error = auth_err
+                    continue
+                raise ConfigEntryAuthFailed(
+                    "SSL certificate changed for NanoKVM"
+                ) from auth_err
+            except aiohttp.ClientConnectorError as auth_err:
+                last_error = auth_err
+                continue
+            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
+                if isinstance(original_error, aiohttp.ClientResponseError):
+                    raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
+                raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
+
+        if isinstance(original_error, aiohttp.ClientResponseError):
+            assert last_error is not None
+            raise UpdateFailed(f"Reauthentication failed: {last_error}") from last_error
+        if last_error is not None:
+            raise UpdateFailed(f"Authentication failed: {last_error}") from last_error
+
+    async def _async_failover_client(self, original_error: Exception) -> bool:
+        """Switch to an alternate API transport after a connection failure."""
+        options = api_connection_options(
+            self.config_entry.data[CONF_HOST],
+            self.config_entry.data.get(CONF_SSL_FINGERPRINT),
+            preferred_url=str(self.client.url),
+        )
+        fallback_options = tuple(
+            option for option in options if option.base_url != str(self.client.url)
+        )
+
+        for option in fallback_options:
+            new_client = NanoKVMClient(
+                option.base_url,
+                ssl_fingerprint=option.ssl_fingerprint,
+            )
+            try:
+                async with new_client:
+                    await new_client.authenticate(self.username, self.password)
+                _LOGGER.debug(
+                    "Switched NanoKVM API transport from %s to %s after connection failure",
+                    self.client.url,
+                    option.base_url,
+                )
+                self.client = new_client
+                return True
+            except NanoKVMAuthenticationFailure as err:
                 raise ConfigEntryAuthFailed(
                     "Stored NanoKVM credentials are no longer valid"
-                ) from auth_err
-            if isinstance(auth_err, aiohttp.ClientResponseError):
-                raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
-            raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
-        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
-            if isinstance(original_error, aiohttp.ClientResponseError):
-                raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
-            raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
+                ) from err
+            except (
+                aiohttp.ServerFingerprintMismatch,
+                aiohttp.ClientConnectorCertificateError,
+            ) as err:
+                raise ConfigEntryAuthFailed(
+                    "SSL certificate changed for NanoKVM"
+                ) from err
+            except aiohttp.ClientConnectorError:
+                continue
+            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+                raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+
+        _LOGGER.debug(
+            "No alternate NanoKVM API transport succeeded after connection failure from %s: %s",
+            self.client.url,
+            original_error,
+        )
+        return False
 
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""

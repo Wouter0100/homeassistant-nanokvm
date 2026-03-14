@@ -24,6 +24,14 @@
       "reauth_confirm": {
         "title": "Réauthentifier Sipeed NanoKVM",
         "description": "L'intégration NanoKVM a besoin d'identifiants mis à jour pour {name}."
+      },
+      "ssl_fingerprint": {
+        "title": "Vérifier le certificat SSL",
+        "description": "L'appareil NanoKVM à l'adresse **{host}** a présenté un certificat auto-signé avec l'empreinte SHA-256 suivante :\n\n`{fingerprint}`\n\nFaites-vous confiance à ce certificat ?"
+      },
+      "ssl_fingerprint_changed": {
+        "title": "Le certificat SSL a changé",
+        "description": "Le certificat SSL de l'appareil NanoKVM à l'adresse **{host}** a changé.\n\n**Empreinte précédente :**\n`{old_fingerprint}`\n\n**Nouvelle empreinte :**\n`{new_fingerprint}`\n\nCela peut signifier que l'appareil a généré un nouveau certificat, ou que quelque chose intercepte la connexion. Acceptez uniquement si vous vous attendez à ce changement."
       }
     },
     "abort": {
@@ -32,7 +40,8 @@
     "error": {
       "cannot_connect": "Échec de la connexion",
       "invalid_auth": "Authentification invalide",
-      "unknown": "Erreur inattendue"
+      "unknown": "Erreur inattendue",
+      "ssl_certificate_changed": "Le certificat SSL a changé"
     }
   },
   "entity": {

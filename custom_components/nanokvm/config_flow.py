@@ -24,29 +24,47 @@ from .const import (
     DOMAIN,
     INTEGRATION_TITLE,
 )
-from .utils import normalize_host, normalize_mdns
+from .utils import api_connection_options, https_probe_url, normalize_host, normalize_mdns
 
 _LOGGER = logging.getLogger(__name__)
 
 async def validate_input(data: dict[str, Any]) -> str:
     """Validate the user input allows us to connect."""
-    async with NanoKVMClient(
-        normalize_host(data[CONF_HOST]),
-        ssl_fingerprint=data.get(CONF_SSL_FINGERPRINT),
-    ) as client:
-        try:
-            await client.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD])
-            device_info = await client.get_info()
-        except NanoKVMAuthenticationFailure as err:
-            raise InvalidAuth from err
-        except (aiohttp.ClientConnectorCertificateError,
-                aiohttp.ServerFingerprintMismatch) as err:
-            raise SSLCertificateChanged from err
-        except (aiohttp.ClientConnectorError, asyncio.TimeoutError,
-                aiohttp.ClientError, NanoKVMError) as err:
-            raise CannotConnect from err
+    options = api_connection_options(
+        data[CONF_HOST],
+        data.get(CONF_SSL_FINGERPRINT),
+    )
+    last_error: Exception | None = None
 
-    return str(device_info.device_key)
+    for index, option in enumerate(options):
+        async with NanoKVMClient(
+            option.base_url,
+            ssl_fingerprint=option.ssl_fingerprint,
+        ) as client:
+            try:
+                await client.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD])
+                device_info = await client.get_info()
+                return str(device_info.device_key)
+            except NanoKVMAuthenticationFailure as err:
+                raise InvalidAuth from err
+            except (
+                aiohttp.ClientConnectorCertificateError,
+                aiohttp.ServerFingerprintMismatch,
+            ) as err:
+                if option.scheme == "http" and index < len(options) - 1:
+                    last_error = err
+                    continue
+                raise SSLCertificateChanged from err
+            except aiohttp.ClientConnectorError as err:
+                last_error = err
+                if index < len(options) - 1:
+                    continue
+            except (asyncio.TimeoutError, aiohttp.ClientError, NanoKVMError) as err:
+                last_error = err
+                break
+
+    assert last_error is not None
+    raise CannotConnect from last_error
 
 
 class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -158,7 +176,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         """Fetch the remote fingerprint and redirect to the SSL confirmation step."""
         self._ssl_return_step = return_step
         self._discovered_fingerprint = await async_fetch_remote_fingerprint(
-            normalize_host(self.data[CONF_HOST])
+            https_probe_url(self.data[CONF_HOST])
         )
 
         if return_step == "reauth_finish" and self.data.get(CONF_SSL_FINGERPRINT):
@@ -284,7 +302,11 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         except InvalidAuth:
             return await self.async_step_reauth_confirm()
         except (CannotConnect, SSLCertificateChanged, Exception) as err:
-            _LOGGER.error("Reauth failed after SSL confirmation: %s", err)
+            _LOGGER.error(
+                "Reauth failed after SSL confirmation: %s: %s",
+                type(err).__name__,
+                err,
+            )
             return self.async_abort(reason="cannot_connect")
 
         return await self._async_finish_reauth(entry, device_key)
