@@ -38,6 +38,15 @@ UPDATES: tuple[NanoKVMUpdateEntityDescription, ...] = (
 )
 
 
+def _normalize_version(version: str | None) -> str | None:
+    """Normalize empty version strings to None."""
+    if version is None:
+        return None
+
+    normalized = version.strip()
+    return normalized or None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -86,16 +95,30 @@ class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         """Version installed and in use."""
-        if self.coordinator.application_version_info is None:
-            return None
-        return self.coordinator.application_version_info.current
+        current_version = None
+        if self.coordinator.application_version_info is not None:
+            current_version = _normalize_version(
+                self.coordinator.application_version_info.current
+            )
+
+        if current_version is not None:
+            return current_version
+
+        return _normalize_version(self.coordinator.device_info.application)
 
     @property
     def latest_version(self) -> str | None:
         """Latest version available for install."""
-        if self.coordinator.application_version_info is None:
-            return None
-        return self.coordinator.application_version_info.latest
+        latest_version = None
+        if self.coordinator.application_version_info is not None:
+            latest_version = _normalize_version(
+                self.coordinator.application_version_info.latest
+            )
+
+        if latest_version is not None:
+            return latest_version
+
+        return self.installed_version
 
     async def async_install(
         self, version: str | None, backup: bool, **kwargs: Any
