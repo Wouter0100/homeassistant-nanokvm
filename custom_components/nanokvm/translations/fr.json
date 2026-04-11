@@ -158,6 +158,9 @@
       },
       "hdmi": {
         "name": "Sortie HDMI"
+      },
+      "watchdog": {
+        "name": "Watchdog"
       }
     },
     "select": {

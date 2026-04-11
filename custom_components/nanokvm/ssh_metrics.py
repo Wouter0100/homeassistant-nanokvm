@@ -19,6 +19,7 @@ class SSHMetricsSnapshot:
     memory_used_percent: float | None
     storage_total: float | None
     storage_used_percent: float | None
+    watchdog_enabled: bool | None
 
 
 class SSHMetricsCollector:
@@ -34,18 +35,25 @@ class SSHMetricsCollector:
         if self._client.ssh_client:
             await self._client.disconnect()
 
-    async def collect(self) -> SSHMetricsSnapshot:
-        """Collect uptime, memory and storage stats."""
+    async def _async_ensure_connected(self) -> None:
+        """Connect the SSH client when needed."""
         ssh_client = self._client.ssh_client
         transport = ssh_client.get_transport() if ssh_client is not None else None
 
         if ssh_client is None or transport is None or not transport.is_active():
             await self._client.authenticate(self._password)
 
+    async def collect(self, *, include_watchdog: bool = False) -> SSHMetricsSnapshot:
+        """Collect uptime, memory, storage, and optional watchdog state."""
+        await self._async_ensure_connected()
+
         uptime = await self._fetch_uptime()
         cpu_temperature = await self._fetch_cpu_temperature()
         memory_stats = await self._fetch_memory()
         storage_stats = await self._fetch_storage()
+        watchdog_enabled = None
+        if include_watchdog:
+            watchdog_enabled = await self.fetch_watchdog_enabled()
 
         return SSHMetricsSnapshot(
             uptime=uptime,
@@ -54,7 +62,20 @@ class SSHMetricsCollector:
             memory_used_percent=memory_stats.get("used_percent"),
             storage_total=storage_stats.get("total"),
             storage_used_percent=storage_stats.get("used_percent"),
+            watchdog_enabled=watchdog_enabled,
         )
+
+    async def fetch_watchdog_enabled(self) -> bool:
+        """Return whether the NanoKVM watchdog file exists."""
+        await self._async_ensure_connected()
+        output = await self._client.run_command("test -f /etc/kvm/watchdog && echo 1 || echo 0")
+        return output.strip() == "1"
+
+    async def set_watchdog_enabled(self, enabled: bool) -> None:
+        """Enable or disable the NanoKVM watchdog file."""
+        await self._async_ensure_connected()
+        command = "touch /etc/kvm/watchdog" if enabled else "rm -f /etc/kvm/watchdog"
+        await self._client.run_command(command)
 
     async def _fetch_uptime(self) -> datetime.datetime | None:
         """Fetch uptime via SSH."""

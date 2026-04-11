@@ -158,6 +158,9 @@
       },
       "hdmi": {
         "name": "HDMI Output"
+      },
+      "watchdog": {
+        "name": "Watchdog"
       }
     },
     "select": {
