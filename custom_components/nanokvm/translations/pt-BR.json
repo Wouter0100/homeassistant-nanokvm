@@ -158,6 +158,9 @@
       },
       "hdmi": {
         "name": "Saída HDMI"
+      },
+      "watchdog": {
+        "name": "Watchdog"
       }
     },
     "select": {

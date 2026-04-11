@@ -10,7 +10,8 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nanokvm.models import GpioType, HWVersion, VirtualDevice
@@ -23,6 +24,8 @@ from .const import (
     ICON_NETWORK,
     ICON_SSH,
     ICON_POWER,
+    ICON_WATCHDOG,
+    SIGNAL_NEW_SSH_SWITCHES,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
@@ -55,6 +58,16 @@ def _hdmi_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
         and coordinator.hardware_info is not None
         and coordinator.hardware_info.version == HWVersion.PCIE
     )
+
+
+def _watchdog_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return watchdog switch state."""
+    return bool(coordinator.watchdog_enabled)
+
+
+def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the watchdog switch should be available."""
+    return coordinator.supports_watchdog and coordinator.watchdog_enabled is not None
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
@@ -128,6 +141,18 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
 )
 
+SSH_SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
+    NanoKVMSwitchEntityDescription(
+        key="watchdog",
+        name="Watchdog",
+        translation_key="watchdog",
+        icon=ICON_WATCHDOG,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=_watchdog_value,
+        available_fn=_watchdog_available,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -169,6 +194,41 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+    ssh_entities_added = False
+
+    @callback
+    def async_add_ssh_switches() -> None:
+        """Add SSH-backed switches when they become available."""
+        nonlocal ssh_entities_added
+        if ssh_entities_added:
+            return
+
+        entities = [
+            NanoKVMWatchdogSwitch(
+                coordinator=coordinator,
+                description=description,
+            )
+            for description in SSH_SWITCHES
+            if description.available_fn(coordinator)
+        ]
+        if not entities:
+            return
+
+        async_add_entities(entities)
+        ssh_entities_added = True
+        coordinator.ssh_switches_created = True
+
+    if any(description.available_fn(coordinator) for description in SSH_SWITCHES):
+        async_add_ssh_switches()
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            SIGNAL_NEW_SSH_SWITCHES.format(entry.entry_id),
+            async_add_ssh_switches,
+        )
+    )
+
 
 class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
     """Defines a NanoKVM switch."""
@@ -191,6 +251,11 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
     def is_on(self) -> bool:
         """Return the state of the switch."""
         return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return super().available and self.entity_description.available_fn(self.coordinator)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
@@ -271,3 +336,23 @@ class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
         """Turn off the virtual device switch."""
         del kwargs
         await self._async_set_virtual_device_state(False)
+
+
+class NanoKVMWatchdogSwitch(NanoKVMSwitch):
+    """Defines a NanoKVM watchdog switch backed by SSH file control."""
+
+    async def _async_set_watchdog_state(self, enabled: bool) -> None:
+        """Set watchdog state via SSH and refresh coordinator state."""
+        collector = await self.coordinator.async_ensure_ssh_metrics_collector()
+        await collector.set_watchdog_enabled(enabled)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the watchdog."""
+        del kwargs
+        await self._async_set_watchdog_state(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the watchdog."""
+        del kwargs
+        await self._async_set_watchdog_state(False)

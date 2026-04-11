@@ -123,7 +123,7 @@ Each platform follows a similar pattern:
   When the configured host has no scheme, the integration will try HTTP first
   and then HTTPS, supporting self-signed certificates via stored fingerprints.
 
-## Local CI/CD (Pre-Push)
+## Local Validation (Pre-Push)
 
 Run these checks locally before pushing:
 
@@ -133,10 +133,7 @@ Run these checks locally before pushing:
 2. Validate metadata JSON:
    - `Get-Content hacs.json | ConvertFrom-Json > $null`
    - `Get-Content custom_components/nanokvm/manifest.json | ConvertFrom-Json > $null`
-3. Local Home Assistant smoke test:
-   - `docker compose up -d --build`
-   - `docker compose logs --tail=200`
-   - `docker compose down`
+3. Verify the integration against a Home Assistant test instance and inspect logs.
 
 ## Required GitHub Workflows
 

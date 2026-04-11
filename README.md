@@ -16,7 +16,7 @@ device settings, diagnostics, services, and camera streaming in Home Assistant.
 | Area | Capabilities |
 | --- | --- |
 | Power and hardware | Power/reset actions, status LEDs, HDMI output control (PCI-E) |
-| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size, mouse jiggler |
+| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size, mouse jiggler, watchdog |
 | Virtual devices | Virtual network and virtual disk switches |
 | Monitoring | Mounted image, CD-ROM mode, Tailscale, Wi-Fi |
 | Updates | Application version reporting and install action |
@@ -77,7 +77,7 @@ Notes:
 | Camera | HDMI stream camera with still snapshots and WebRTC |
 | Select | HID mode, Mouse Jiggler, OLED timeout, Swap size |
 | Sensor | Mounted image, Tailscale, SSH diagnostics |
-| Switch | Power, SSH, mDNS, Virtual network/disk, HDMI output |
+| Switch | Power, SSH, mDNS, Virtual network/disk, HDMI output, watchdog |
 | Update | Application version and install action |
 
 Notes:
@@ -86,6 +86,7 @@ Notes:
 - HDD LED is Alpha-only.
 - Wi-Fi entities only appear when the device reports Wi-Fi support.
 - SSH diagnostics appear after SSH is enabled on the NanoKVM.
+- The watchdog switch requires SSH and NanoKVM application version `2.2.2` or newer.
 
 ## Hardware Compatibility
 

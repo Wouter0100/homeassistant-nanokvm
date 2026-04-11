@@ -28,7 +28,7 @@ Recommended flow:
 Before opening a PR, run:
 
 1. `ruff check custom_components/nanokvm`
-2. Local Home Assistant smoke test (if relevant)
+2. Test the integration on a Home Assistant instance (if relevant)
 
 CI must pass on the PR branch:
 
