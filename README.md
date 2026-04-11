@@ -8,19 +8,20 @@
 
 Control and monitor a [Sipeed NanoKVM](https://github.com/sipeed/NanoKVM)
 from Home Assistant.
-This project started as an experiment built with an LLM (Google Gemini)
-using Cline.
+The integration connects to the NanoKVM API and exposes power controls,
+device settings, diagnostics, services, and camera streaming in Home Assistant.
 
 ## What You Get
 
 | Area | Capabilities |
 | --- | --- |
-| Power and hardware | Power/reset actions, status LEDs, HDMI toggle (PCI-E) |
-| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size |
+| Power and hardware | Power/reset actions, status LEDs, HDMI output control (PCI-E) |
+| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size, mouse jiggler |
 | Virtual devices | Virtual network and virtual disk switches |
-| Monitoring | Firmware/app version, mounted image, Tailscale, Wi-Fi |
+| Monitoring | Mounted image, CD-ROM mode, Tailscale, Wi-Fi |
+| Updates | Application version reporting and install action |
 | SSH diagnostics | Uptime, CPU temp, memory/storage usage when SSH is enabled |
-| Camera | HDMI camera stream support |
+| Camera | HDMI still snapshots and native WebRTC streaming |
 
 ## Installation
 
@@ -48,7 +49,7 @@ Add the integration from **Settings -> Devices & Services -> Add Integration**.
 
 | Option | Description |
 | --- | --- |
-| Host | IP/hostname of NanoKVM |
+| Host / API URL | IP, hostname, or full NanoKVM URL |
 | Username / Password | NanoKVM credentials (defaults may be prompted first) |
 | Use static host only | Disables mDNS-based host updates after setup |
 
@@ -56,32 +57,35 @@ Notes:
 
 - Zeroconf discovery is supported.
 - Unique ID is based on NanoKVM `device_key`.
-- HTTPS is currently not supported by this integration.
-  Use `http://` (or plain IP/hostname).
+- If no scheme is provided, the integration tries `http` first and then `https`.
+- Self-signed HTTPS certificates are supported by confirming the presented fingerprint during setup or reauthentication.
+- When **Use static host only** is disabled, zeroconf rediscovery can refresh the stored host/IP.
 - Coordinator polling interval is 30 seconds.
 
 ## Known Limitations
 
-- HTTPS/TLS is not supported yet.
 - Host updates from discovery are disabled when **Use static host only** is enabled.
 - Camera stream availability depends on HDMI input/source status.
+- Feature-specific entities only appear when the device reports support for them.
 
 ## Entities
 
 | Platform | Highlights |
 | --- | --- |
-| Binary sensor | Power LED, HDD LED, Wi-Fi Connected, Update Available |
-| Button | Power/Reset, Reboot, Reset HID/HDMI, Update Application |
-| Camera | HDMI stream camera |
+| Binary sensor | Power LED, HDD LED, Wi-Fi connected, CD-ROM mode |
+| Button | Power/Reset buttons, reboot, reset HID/HDMI |
+| Camera | HDMI stream camera with still snapshots and WebRTC |
 | Select | HID mode, Mouse Jiggler, OLED timeout, Swap size |
-| Sensor | Firmware, Mounted image, Tailscale, SSH diagnostics |
+| Sensor | Mounted image, Tailscale, SSH diagnostics |
 | Switch | Power, SSH, mDNS, Virtual network/disk, HDMI output |
+| Update | Application version and install action |
 
 Notes:
 
-- HDMI controls are PCI-E only.
+- HDMI output controls are PCI-E only.
 - HDD LED is Alpha-only.
-- SSH diagnostics require SSH enabled on NanoKVM.
+- Wi-Fi entities only appear when the device reports Wi-Fi support.
+- SSH diagnostics appear after SSH is enabled on the NanoKVM.
 
 ## Hardware Compatibility
 
@@ -130,9 +134,9 @@ automation:
 
 | Symptom | Check |
 | --- | --- |
-| Cannot connect | Confirm host/IP, DNS, and network reachability from HA |
+| Cannot connect | Confirm host/API URL, DNS, network reachability, and expected HTTP/HTTPS scheme |
 | Authentication fails | Verify NanoKVM credentials |
-| Missing entities | Reload integration or restart HA |
+| Missing entities | Some entities only appear after the related feature is available (for example SSH enabled or media mounted) |
 | No SSH sensors | Enable SSH on NanoKVM |
 | No HDMI controls | HDMI controls only appear on PCI-E hardware |
 
@@ -155,6 +159,7 @@ automation:
 
 ## Acknowledgements
 
+- This project started as an experiment built with an LLM (Google Gemini) using Cline.
 - [Sipeed](https://sipeed.com/) for creating the NanoKVM device.
 - [puddly](https://github.com/puddly) for creating
   [`python-nanokvm`](https://github.com/puddly/python-nanokvm).

@@ -11,8 +11,8 @@ Home Assistant integration, detailing its architecture and code structure.
 
 This project is a custom integration for [Home Assistant][ha-url], allowing
 users to control and monitor a [Sipeed NanoKVM][nanokvm-url] device.
-It communicates with the NanoKVM HTTP API to expose features as entities
-and services in Home Assistant.
+It communicates with the NanoKVM API over HTTP or HTTPS to expose features as
+entities and services in Home Assistant.
 
 The integration is built on the `nanokvm` Python library, which handles
 the low-level API communication.
@@ -47,12 +47,15 @@ The integration follows the standard structure for a Home Assistant
   - Implements `ConfigFlow` for manual setup and zeroconf discovery.
   - Includes `validate_input` to verify connectivity and authentication before
     creating the config entry.
-  - Handles auth step, static-host option, and legacy/new unique-id matching.
+  - Handles auth step, SSL fingerprint confirmation, static-host option, and
+    legacy/new unique-id matching.
 
 - **`const.py`**: Central repository for shared constants (domain, service
   names, attributes, defaults, icons, and signal names).
 
 - **`utils.py`**: Shared helpers for host normalization and SSH host extraction.
+  - Resolves HTTP/HTTPS API candidates, HTTPS probe URLs, and normalized host
+    matching keys.
 
 - **`ssh_metrics.py`**: SSH metrics collection implementation used by the
   coordinator.
@@ -116,6 +119,9 @@ Each platform follows a similar pattern:
   integration.
 - **Zeroconf discovery**:
   The integration supports local-network discovery via mDNS/zeroconf.
+- **Dual transport support**:
+  When the configured host has no scheme, the integration will try HTTP first
+  and then HTTPS, supporting self-signed certificates via stored fingerprints.
 
 ## Local CI/CD (Pre-Push)
 
