@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import logging
 from typing import Any
 
 import aiohttp
 import async_timeout
+from awesomeversion import AwesomeVersion, AwesomeVersionException
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
@@ -22,7 +24,7 @@ from nanokvm.client import (
     NanoKVMClient,
     NanoKVMError,
 )
-from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, HidMode
+from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, GetVersionRsp, HidMode
 
 from .const import (
     CONF_SSL_FINGERPRINT,
@@ -31,6 +33,7 @@ from .const import (
     DOMAIN,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_SSH_SENSORS,
+    SIGNAL_NEW_SSH_SWITCHES,
 )
 from .ssh_metrics import SSHMetricsCollector
 from .utils import api_connection_options, extract_ssh_host
@@ -40,6 +43,10 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
+_APP_VERSION_CACHE_SECONDS = 300
+_APP_VERSION_FAILURE_CACHE_SECONDS = 60
+_WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
 
 
 def _is_auth_failure(error: Exception) -> bool:
@@ -90,8 +97,12 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.storage_used_percent = None
         self.media_entities_created = False
         self.ssh_sensors_created = False
+        self.ssh_switches_created = False
         self.ssh_metrics_collector = None
         self.hostname_info = None
+        self.watchdog_enabled = None
+        self._app_version_last_fetched: datetime.datetime | None = None
+        self._app_version_fetch_task: asyncio.Task[None] | None = None
 
         super().__init__(
             hass,
@@ -184,6 +195,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             await self._async_fetch_storage_data()
             self._async_maybe_create_media_entities()
             await self._async_refresh_ssh_data()
+            self._async_schedule_app_version_refresh()
             return self._build_update_data()
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
@@ -298,11 +310,64 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.hid_mode = await self.client.get_hid_mode()
         self.oled_info = await self.client.get_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
-        self.application_version_info = await self.client.get_application_version()
         self.hdmi_state = await self.client.get_hdmi_state()
         self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
         self.swap_size = await self.client.get_swap_size()
         self.tailscale_status = await self.client.get_tailscale_status()
+
+    def _async_schedule_app_version_refresh(self) -> None:
+        """Refresh application version info outside the critical poll path."""
+        if (
+            self._app_version_fetch_task is not None
+            and not self._app_version_fetch_task.done()
+        ):
+            return
+
+        now = datetime.datetime.now(datetime.UTC)
+        cache_ttl = (
+            _APP_VERSION_CACHE_SECONDS
+            if self.application_version_info is not None
+            else _APP_VERSION_FAILURE_CACHE_SECONDS
+        )
+        if (
+            self._app_version_last_fetched is not None
+            and (now - self._app_version_last_fetched).total_seconds() < cache_ttl
+        ):
+            return
+
+        self._app_version_fetch_task = self.hass.async_create_task(
+            self._async_refresh_app_version()
+        )
+
+    async def _async_refresh_app_version(self) -> None:
+        """Fetch and cache application version info without blocking coordinator refreshes."""
+        try:
+            self.application_version_info = await self._async_fetch_app_version()
+            self._app_version_last_fetched = datetime.datetime.now(datetime.UTC)
+            self.async_update_listeners()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._app_version_fetch_task = None
+
+    async def _async_fetch_app_version(self) -> GetVersionRsp | None:
+        """Fetch application version using a dedicated client and timeout."""
+        version_client = NanoKVMClient(
+            str(self.client.url),
+            token=self.client.token,
+            ssl_fingerprint=self.config_entry.data.get(CONF_SSL_FINGERPRINT),
+            request_timeout=_APP_VERSION_REQUEST_TIMEOUT_SECONDS,
+        )
+        try:
+            async with version_client:
+                return await version_client.get_application_version()
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug(
+                "Failed to fetch application version from NanoKVM: %s "
+                "(device may have no internet access)",
+                err,
+            )
+            return None
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
@@ -353,16 +418,41 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             "swap_size": self.swap_size,
             "tailscale_status": self.tailscale_status,
             "hostname_info": self.hostname_info,
+            "watchdog_enabled": self.watchdog_enabled,
         }
 
-    def _clear_ssh_metrics(self) -> None:
-        """Clear SSH-derived metrics from the coordinator."""
+    def _clear_ssh_runtime_state(self) -> None:
+        """Clear SSH-derived runtime state from the coordinator."""
         self.uptime = None
         self.cpu_temperature = None
         self.memory_total = None
         self.memory_used_percent = None
         self.storage_total = None
         self.storage_used_percent = None
+        self.watchdog_enabled = None
+
+    @property
+    def supports_watchdog(self) -> bool:
+        """Return whether NanoKVM watchdog support is available."""
+        application_version = self.device_info.application.strip()
+        if not application_version:
+            return False
+
+        try:
+            return AwesomeVersion(application_version) >= _WATCHDOG_MIN_VERSION
+        except AwesomeVersionException:
+            _LOGGER.debug(
+                "Unable to determine watchdog support from NanoKVM application version %r",
+                application_version,
+            )
+            return False
+
+    async def async_ensure_ssh_metrics_collector(self) -> SSHMetricsCollector:
+        """Return the active SSH collector, creating it when needed."""
+        if not self.ssh_metrics_collector:
+            host = extract_ssh_host(self.config_entry.data[CONF_HOST])
+            self.ssh_metrics_collector = SSHMetricsCollector(host=host, password=self.password)
+        return self.ssh_metrics_collector
 
     def _async_maybe_create_media_entities(self) -> None:
         """Signal when media-backed entities should be created."""
@@ -378,18 +468,16 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_ssh_data(self) -> None:
         """Fetch data via SSH."""
-        if not self.ssh_metrics_collector:
-            host = extract_ssh_host(self.config_entry.data[CONF_HOST])
-            self.ssh_metrics_collector = SSHMetricsCollector(host=host, password=self.password)
-
         try:
-            metrics = await self.ssh_metrics_collector.collect()
+            collector = await self.async_ensure_ssh_metrics_collector()
+            metrics = await collector.collect(include_watchdog=self.supports_watchdog)
             self.uptime = metrics.uptime
             self.cpu_temperature = metrics.cpu_temperature
             self.memory_total = metrics.memory_total
             self.memory_used_percent = metrics.memory_used_percent
             self.storage_total = metrics.storage_total
             self.storage_used_percent = metrics.storage_used_percent
+            self.watchdog_enabled = metrics.watchdog_enabled
             _LOGGER.debug(
                 "SSH coordinator metrics updated: uptime=%s cpu_temperature=%s memory_used_percent=%s storage_used_percent=%s",
                 self.uptime,
@@ -405,15 +493,34 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.ssh_sensors_created = True
 
+            if self.supports_watchdog and not self.ssh_switches_created:
+                _LOGGER.debug("Watchdog supported, signaling to create SSH-backed switches")
+                async_dispatcher_send(
+                    self.hass, SIGNAL_NEW_SSH_SWITCHES.format(self.config_entry.entry_id)
+                )
+                self.ssh_switches_created = True
+
         except Exception as err:
             _LOGGER.debug("Failed to fetch data via SSH: %s", err)
-            self._clear_ssh_metrics()
+            self._clear_ssh_runtime_state()
             if self.ssh_metrics_collector:
                 await self.ssh_metrics_collector.disconnect()
 
     async def _async_clear_ssh_data(self) -> None:
         """Clear SSH data and disconnect client."""
-        self._clear_ssh_metrics()
+        self._clear_ssh_runtime_state()
+        if self.ssh_metrics_collector:
+            await self.ssh_metrics_collector.disconnect()
+            self.ssh_metrics_collector = None
+
+    async def async_shutdown(self) -> None:
+        """Release any background tasks and live connections owned by the coordinator."""
+        if self._app_version_fetch_task is not None:
+            self._app_version_fetch_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._app_version_fetch_task
+            self._app_version_fetch_task = None
+
         if self.ssh_metrics_collector:
             await self.ssh_metrics_collector.disconnect()
             self.ssh_metrics_collector = None

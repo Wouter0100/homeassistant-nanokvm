@@ -118,8 +118,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     domain_data = hass.data.get(DOMAIN, {})
     coordinator = domain_data.pop(entry.entry_id, None)
-    if coordinator and coordinator.ssh_metrics_collector:
-        await coordinator.ssh_metrics_collector.disconnect()
+    if coordinator:
+        await coordinator.async_shutdown()
 
     if not domain_data:
         async_unregister_services(hass)
