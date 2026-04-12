@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import logging
 from typing import Any
@@ -23,7 +24,7 @@ from nanokvm.client import (
     NanoKVMClient,
     NanoKVMError,
 )
-from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, HidMode
+from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, GetVersionRsp, HidMode
 
 from .const import (
     CONF_SSL_FINGERPRINT,
@@ -42,6 +43,9 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
+_APP_VERSION_CACHE_SECONDS = 300
+_APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
 
 
@@ -97,6 +101,8 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.ssh_metrics_collector = None
         self.hostname_info = None
         self.watchdog_enabled = None
+        self._app_version_last_fetched: datetime.datetime | None = None
+        self._app_version_fetch_task: asyncio.Task[None] | None = None
 
         super().__init__(
             hass,
@@ -189,6 +195,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             await self._async_fetch_storage_data()
             self._async_maybe_create_media_entities()
             await self._async_refresh_ssh_data()
+            self._async_schedule_app_version_refresh()
             return self._build_update_data()
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
@@ -303,11 +310,64 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.hid_mode = await self.client.get_hid_mode()
         self.oled_info = await self.client.get_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
-        self.application_version_info = await self.client.get_application_version()
         self.hdmi_state = await self.client.get_hdmi_state()
         self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
         self.swap_size = await self.client.get_swap_size()
         self.tailscale_status = await self.client.get_tailscale_status()
+
+    def _async_schedule_app_version_refresh(self) -> None:
+        """Refresh application version info outside the critical poll path."""
+        if (
+            self._app_version_fetch_task is not None
+            and not self._app_version_fetch_task.done()
+        ):
+            return
+
+        now = datetime.datetime.now(datetime.UTC)
+        cache_ttl = (
+            _APP_VERSION_CACHE_SECONDS
+            if self.application_version_info is not None
+            else _APP_VERSION_FAILURE_CACHE_SECONDS
+        )
+        if (
+            self._app_version_last_fetched is not None
+            and (now - self._app_version_last_fetched).total_seconds() < cache_ttl
+        ):
+            return
+
+        self._app_version_fetch_task = self.hass.async_create_task(
+            self._async_refresh_app_version()
+        )
+
+    async def _async_refresh_app_version(self) -> None:
+        """Fetch and cache application version info without blocking coordinator refreshes."""
+        try:
+            self.application_version_info = await self._async_fetch_app_version()
+            self._app_version_last_fetched = datetime.datetime.now(datetime.UTC)
+            self.async_update_listeners()
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._app_version_fetch_task = None
+
+    async def _async_fetch_app_version(self) -> GetVersionRsp | None:
+        """Fetch application version using a dedicated client and timeout."""
+        version_client = NanoKVMClient(
+            str(self.client.url),
+            token=self.client.token,
+            ssl_fingerprint=self.config_entry.data.get(CONF_SSL_FINGERPRINT),
+            request_timeout=_APP_VERSION_REQUEST_TIMEOUT_SECONDS,
+        )
+        try:
+            async with version_client:
+                return await version_client.get_application_version()
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug(
+                "Failed to fetch application version from NanoKVM: %s "
+                "(device may have no internet access)",
+                err,
+            )
+            return None
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
@@ -449,6 +509,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_clear_ssh_data(self) -> None:
         """Clear SSH data and disconnect client."""
         self._clear_ssh_runtime_state()
+        if self.ssh_metrics_collector:
+            await self.ssh_metrics_collector.disconnect()
+            self.ssh_metrics_collector = None
+
+    async def async_shutdown(self) -> None:
+        """Release any background tasks and live connections owned by the coordinator."""
+        if self._app_version_fetch_task is not None:
+            self._app_version_fetch_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._app_version_fetch_task
+            self._app_version_fetch_task = None
+
         if self.ssh_metrics_collector:
             await self.ssh_metrics_collector.disconnect()
             self.ssh_metrics_collector = None
