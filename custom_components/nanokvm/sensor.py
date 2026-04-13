@@ -56,6 +56,34 @@ def _mounted_image_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
     return coordinator.mounted_image.file if coordinator.mounted_image else ""
 
 
+def _primary_ip_address(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
+    """Return the preferred local IP address for the NanoKVM."""
+    addresses = coordinator.device_info.ips
+    if not addresses:
+        return None
+
+    for address in addresses:
+        if address.version == "IPv4":
+            return address.addr
+
+    return addresses[0].addr
+
+
+def _ip_address_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[str, Any]:
+    """Return all NanoKVM-reported addresses as sensor attributes."""
+    return {
+        "addresses": [
+            {
+                "name": address.name,
+                "addr": address.addr,
+                "version": address.version,
+                "type": address.type,
+            }
+            for address in coordinator.device_info.ips
+        ]
+    }
+
+
 def _tailscale_state_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
     """Return normalized tailscale state value."""
     if coordinator.tailscale_status is None:
@@ -109,6 +137,16 @@ MEDIA_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
 )
 
 SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
+    NanoKVMSensorEntityDescription(
+        key="ip_address",
+        name="IP Address",
+        translation_key="ip_address",
+        icon=ICON_NETWORK,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_primary_ip_address,
+        available_fn=lambda coordinator: _primary_ip_address(coordinator) is not None,
+        attributes_fn=_ip_address_attributes,
+    ),
     NanoKVMSensorEntityDescription(
         key="tailscale_state",
         name="Tailscale",
