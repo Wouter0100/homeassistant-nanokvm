@@ -93,6 +93,14 @@
       "application_version": {
         "name": "Version de l'application"
       },
+      "ip_address": {
+        "name": "Adresse IP",
+        "state_attributes": {
+          "addresses": {
+            "name": "Adresses"
+          }
+        }
+      },
       "mounted_image": {
         "name": "Image montée"
       },

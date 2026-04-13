@@ -38,6 +38,14 @@ def _api_base_url(origin: URL, scheme: str) -> str:
     return str(origin.with_scheme(scheme).with_path(_normalize_api_path(origin.path)))
 
 
+def _web_ui_path(path: str) -> str:
+    """Convert an API base path into the corresponding web UI path."""
+    normalized_path = path.rstrip("/")
+    if normalized_path.endswith("/api"):
+        normalized_path = normalized_path[:-4]
+    return f"{normalized_path}/" if normalized_path else "/"
+
+
 def _ssh_host(origin: URL) -> str:
     """Return the hostname to use for SSH connections."""
     host = origin.host or origin.raw_host
@@ -119,6 +127,12 @@ def api_connection_options(
 def https_probe_url(host: str) -> str:
     """Return the HTTPS API base URL for certificate fingerprint probing."""
     return NanoKVMConnectionTarget.from_host(host).https_probe_url
+
+
+def api_base_url_to_web_url(base_url: str) -> str:
+    """Convert a NanoKVM API base URL into the corresponding web UI URL."""
+    parsed_url = URL(base_url).with_query(None).with_fragment(None)
+    return str(parsed_url.with_path(_web_ui_path(parsed_url.path)))
 
 
 def normalize_host(host: str, ssl_fingerprint: str | None = None) -> str:

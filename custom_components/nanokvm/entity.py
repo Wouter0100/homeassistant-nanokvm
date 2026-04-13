@@ -8,6 +8,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, INTEGRATION_TITLE
 from .coordinator import NanoKVMDataUpdateCoordinator
+from .utils import api_base_url_to_web_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,4 +60,5 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
             "model": f"{INTEGRATION_TITLE} {hw_version}",
             "sw_version": sw_version,
             "hw_version": hw_version,
+            "configuration_url": api_base_url_to_web_url(str(self.coordinator.client.url)),
         }
