@@ -109,9 +109,8 @@ are hidden on Pro:
 - CD-ROM Mode binary sensor
 - Virtual Network and Virtual Disk switches
 
-All other entities work. See
-[`docs/plans/2026-04-14-nanokvm-pro-followups.md`](docs/plans/2026-04-14-nanokvm-pro-followups.md)
-for planned Pro-specific additions.
+All other entities work. Planned Pro-specific additions will be documented
+in a future update.
 
 ## Services
 
