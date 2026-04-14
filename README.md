@@ -95,6 +95,23 @@ Notes:
 | HDMI switch/button controls | PCI-E models |
 | HDD LED binary sensor | Alpha models |
 | SSH diagnostic sensors | Any model with SSH enabled |
+| Swap size, CD-ROM mode, virtual network/disk switches | Non-Pro models |
+
+### NanoKVM Pro
+
+NanoKVM Pro devices are supported. Because the Pro firmware no longer
+exposes the `/vm/swap`, `/vm/hdmi`, and `/storage/cdrom` endpoints and
+uses a different schema on `/vm/device/virtual`, the following entities
+are hidden on Pro:
+
+- Swap size select
+- HDMI output switch and Reset HDMI button
+- CD-ROM Mode binary sensor
+- Virtual Network and Virtual Disk switches
+
+All other entities work. See
+[`docs/plans/2026-04-14-nanokvm-pro-followups.md`](docs/plans/2026-04-14-nanokvm-pro-followups.md)
+for planned Pro-specific additions.
 
 ## Services
 

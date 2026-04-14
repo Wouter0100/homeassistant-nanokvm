@@ -70,6 +70,11 @@ def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     return coordinator.supports_watchdog and coordinator.watchdog_enabled is not None
 
 
+def _virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the legacy virtual-device switches apply to this device."""
+    return coordinator.virtual_device_info is not None
+
+
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     NanoKVMSwitchEntityDescription(
         key="ssh",
@@ -104,6 +109,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
         ),
+        available_fn=_virtual_device_available,
         virtual_device=VirtualDevice.NETWORK,
     ),
     NanoKVMSwitchEntityDescription(
@@ -115,6 +121,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.disk
         ),
+        available_fn=_virtual_device_available,
         virtual_device=VirtualDevice.DISK,
     ),
     NanoKVMSwitchEntityDescription(

@@ -23,6 +23,7 @@ from nanokvm.client import (
     NanoKVMAuthenticationFailure,
     NanoKVMClient,
     NanoKVMError,
+    NanoKVMInvalidResponseError,
 )
 from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, GetVersionRsp, HidMode
 
@@ -103,6 +104,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.watchdog_enabled = None
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
+        self._unsupported_endpoints: set[str] = set()
 
         super().__init__(
             hass,
@@ -298,21 +300,58 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
         return False
 
+    def _mark_endpoint_unsupported(self, endpoint: str, err: Exception) -> None:
+        """Record that an endpoint is unsupported on this device and log once."""
+        if endpoint in self._unsupported_endpoints:
+            return
+        self._unsupported_endpoints.add(endpoint)
+        _LOGGER.info(
+            "NanoKVM endpoint %s unsupported on this device; skipping future calls (%s)",
+            endpoint,
+            err,
+        )
+
+    async def _fetch_optional(self, endpoint: str, call):
+        """Run an optional endpoint call; return None when the device lacks it.
+
+        Catches only 404 responses and schema parse failures so that transient
+        5xx/timeout errors still surface and trigger retries. Once an endpoint
+        is recorded unsupported it is never called again for this coordinator.
+        """
+        if endpoint in self._unsupported_endpoints:
+            return None
+        try:
+            return await call()
+        except aiohttp.ClientResponseError as err:
+            if err.status != 404:
+                raise
+            self._mark_endpoint_unsupported(endpoint, err)
+            return None
+        except NanoKVMInvalidResponseError as err:
+            self._mark_endpoint_unsupported(endpoint, err)
+            return None
+
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
         self.device_info = await self.client.get_info()
         self.hostname_info = await self.client.get_hostname()
         self.hardware_info = await self.client.get_hardware()
         self.gpio_info = await self.client.get_gpio()
-        self.virtual_device_info = await self.client.get_virtual_device_status()
+        self.virtual_device_info = await self._fetch_optional(
+            "/vm/device/virtual", self.client.get_virtual_device_status
+        )
         self.ssh_state = await self.client.get_ssh_state()
         self.mdns_state = await self.client.get_mdns_state()
         self.hid_mode = await self.client.get_hid_mode()
         self.oled_info = await self.client.get_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
-        self.hdmi_state = await self.client.get_hdmi_state()
+        self.hdmi_state = await self._fetch_optional(
+            "/vm/hdmi", self.client.get_hdmi_state
+        )
         self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
-        self.swap_size = await self.client.get_swap_size()
+        self.swap_size = await self._fetch_optional(
+            "/vm/swap", self.client.get_swap_size
+        )
         self.tailscale_status = await self.client.get_tailscale_status()
 
     def _async_schedule_app_version_refresh(self) -> None:
@@ -381,7 +420,9 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.mounted_image = GetMountedImageRsp(file="")
 
             try:
-                self.cdrom_status = await self.client.get_cdrom_status()
+                self.cdrom_status = await self._fetch_optional(
+                    "/storage/cdrom", self.client.get_cdrom_status
+                )
             except NanoKVMApiError as err:
                 _LOGGER.debug(
                     "Failed to get CD-ROM status, retrieving default value: %s", err

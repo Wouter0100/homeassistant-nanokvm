@@ -61,6 +61,11 @@ def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     return bool(coordinator.mounted_image and coordinator.mounted_image.file != "")
 
 
+def _cdrom_supported(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the dedicated /storage/cdrom endpoint exists on this device."""
+    return coordinator.cdrom_status is not None
+
+
 MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     NanoKVMBinarySensorEntityDescription(
         key="cdrom_mode",
@@ -71,7 +76,9 @@ MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
         ),
-        available_fn=_has_mounted_image,
+        available_fn=lambda coordinator: _has_mounted_image(coordinator)
+        and _cdrom_supported(coordinator),
+        should_create_fn=_cdrom_supported,
     ),
 )
 
@@ -148,6 +155,7 @@ async def async_setup_entry(
                 description=description,
             )
             for description in MEDIA_BINARY_SENSORS
+            if description.should_create_fn(coordinator)
         )
         media_entities_added = True
 
