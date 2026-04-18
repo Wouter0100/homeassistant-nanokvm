@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from nanokvm.models import GpioType, HWVersion, VirtualDevice
+from nanokvm.models import GpioType, VirtualDevice
 
 from .const import (
     DOMAIN,
@@ -53,11 +53,7 @@ def _hdmi_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 
 def _hdmi_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether HDMI controls are available."""
-    return (
-        coordinator.hdmi_state is not None
-        and coordinator.hardware_info is not None
-        and coordinator.hardware_info.version == HWVersion.PCIE
-    )
+    return coordinator.supports_hdmi_endpoint and coordinator.hdmi_state is not None
 
 
 def _watchdog_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -68,6 +64,11 @@ def _watchdog_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether the watchdog switch should be available."""
     return coordinator.supports_watchdog and coordinator.watchdog_enabled is not None
+
+
+def _virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the legacy virtual-device switches apply to this device."""
+    return coordinator.supports_legacy_virtual_device_controls
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
@@ -104,6 +105,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
         ),
+        available_fn=_virtual_device_available,
         virtual_device=VirtualDevice.NETWORK,
     ),
     NanoKVMSwitchEntityDescription(
@@ -115,6 +117,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.disk
         ),
+        available_fn=_virtual_device_available,
         virtual_device=VirtualDevice.DISK,
     ),
     NanoKVMSwitchEntityDescription(

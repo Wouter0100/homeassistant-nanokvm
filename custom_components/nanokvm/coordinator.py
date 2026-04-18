@@ -24,7 +24,14 @@ from nanokvm.client import (
     NanoKVMClient,
     NanoKVMError,
 )
-from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, GetVersionRsp, HidMode
+from nanokvm.models import (
+    GetCdRomRsp,
+    GetInfoRsp,
+    GetMountedImageRsp,
+    GetVersionRsp,
+    HidMode,
+    HWVersion,
+)
 
 from .const import (
     CONF_SSL_FINGERPRINT,
@@ -298,21 +305,46 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
         return False
 
+    async def _fetch_optional(self, endpoint: str, call):
+        """Run an optional endpoint call; return None when the device lacks it."""
+        try:
+            return await call()
+        except aiohttp.ClientResponseError as err:
+            if err.status != 404:
+                raise
+            _LOGGER.debug("NanoKVM endpoint %s is not available on this device", endpoint)
+            return None
+
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
         self.device_info = await self.client.get_info()
         self.hostname_info = await self.client.get_hostname()
         self.hardware_info = await self.client.get_hardware()
         self.gpio_info = await self.client.get_gpio()
-        self.virtual_device_info = await self.client.get_virtual_device_status()
+        if self.supports_legacy_virtual_device_controls:
+            self.virtual_device_info = await self._fetch_optional(
+                "/vm/device/virtual", self.client.get_virtual_device_status
+            )
+        else:
+            self.virtual_device_info = None
         self.ssh_state = await self.client.get_ssh_state()
         self.mdns_state = await self.client.get_mdns_state()
         self.hid_mode = await self.client.get_hid_mode()
         self.oled_info = await self.client.get_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
-        self.hdmi_state = await self.client.get_hdmi_state()
+        if self.supports_hdmi_endpoint:
+            self.hdmi_state = await self._fetch_optional(
+                "/vm/hdmi", self.client.get_hdmi_state
+            )
+        else:
+            self.hdmi_state = None
         self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
-        self.swap_size = await self.client.get_swap_size()
+        if self.supports_swap_size:
+            self.swap_size = await self._fetch_optional(
+                "/vm/swap", self.client.get_swap_size
+            )
+        else:
+            self.swap_size = None
         self.tailscale_status = await self.client.get_tailscale_status()
 
     def _async_schedule_app_version_refresh(self) -> None:
@@ -380,16 +412,23 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.mounted_image = GetMountedImageRsp(file="")
 
-            try:
-                self.cdrom_status = await self.client.get_cdrom_status()
-            except NanoKVMApiError as err:
-                _LOGGER.debug(
-                    "Failed to get CD-ROM status, retrieving default value: %s", err
-                )
-                self.cdrom_status = GetCdRomRsp(cdrom=0)
+            if self.supports_cdrom_endpoint:
+                try:
+                    self.cdrom_status = await self._fetch_optional(
+                        "/storage/cdrom", self.client.get_cdrom_status
+                    )
+                except NanoKVMApiError as err:
+                    _LOGGER.debug(
+                        "Failed to get CD-ROM status, retrieving default value: %s", err
+                    )
+                    self.cdrom_status = GetCdRomRsp(cdrom=0)
+            else:
+                self.cdrom_status = None
         else:
             self.mounted_image = GetMountedImageRsp(file="")
-            self.cdrom_status = GetCdRomRsp(cdrom=0)
+            self.cdrom_status = (
+                GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
+            )
 
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""
@@ -446,6 +485,35 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 application_version,
             )
             return False
+
+    @property
+    def is_pro_hardware(self) -> bool:
+        """Return whether the detected NanoKVM hardware is the Pro model."""
+        return bool(
+            self.hardware_info and self.hardware_info.version == HWVersion.PRO
+        )
+
+    @property
+    def supports_legacy_virtual_device_controls(self) -> bool:
+        """Return whether legacy virtual network/disk controls apply."""
+        return self.hardware_info is not None and not self.is_pro_hardware
+
+    @property
+    def supports_hdmi_endpoint(self) -> bool:
+        """Return whether the legacy HDMI endpoint should be queried."""
+        return bool(
+            self.hardware_info and self.hardware_info.version == HWVersion.PCIE
+        )
+
+    @property
+    def supports_swap_size(self) -> bool:
+        """Return whether the legacy swap-size endpoint should be queried."""
+        return self.hardware_info is not None and not self.is_pro_hardware
+
+    @property
+    def supports_cdrom_endpoint(self) -> bool:
+        """Return whether the legacy CD-ROM endpoint should be queried."""
+        return self.hardware_info is not None and not self.is_pro_hardware
 
     async def async_ensure_ssh_metrics_collector(self) -> SSHMetricsCollector:
         """Return the active SSH collector, creating it when needed."""
