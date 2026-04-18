@@ -63,7 +63,7 @@ def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 
 def _cdrom_supported(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether the dedicated /storage/cdrom endpoint exists on this device."""
-    return coordinator.cdrom_status is not None
+    return coordinator.supports_cdrom_endpoint
 
 
 MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
