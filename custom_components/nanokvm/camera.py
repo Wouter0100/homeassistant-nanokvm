@@ -89,6 +89,7 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
             hass_provider=lambda: self.hass,
             client_factory=self._create_stream_client,
             authenticate_client=self._authenticate_stream_client,
+            is_pro_hardware=lambda: self.coordinator.is_pro_hardware,
             login_timeout_seconds=LOGIN_TIMEOUT_SECONDS,
             websocket_heartbeat_seconds=WEBSOCKET_HEARTBEAT_SECONDS,
             max_pending_ice_candidates=MAX_PENDING_ICE_CANDIDATES,
