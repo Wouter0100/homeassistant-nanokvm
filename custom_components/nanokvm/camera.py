@@ -141,6 +141,13 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
 
     async def _async_read_snapshot_frame(self) -> bytes | None:
         """Read one JPEG frame from NanoKVM MJPEG endpoint for snapshots."""
+        if self.coordinator.is_pro_hardware:
+            # NanoKVM Pro shares one encoder mode; opening MJPEG interrupts WebRTC.
+            _LOGGER.debug(
+                "Skipping NanoKVM Pro still image to avoid switching video mode"
+            )
+            return None
+
         client = self._create_stream_client()
         if client is None:
             return None

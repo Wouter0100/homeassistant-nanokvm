@@ -38,7 +38,14 @@ _CANDIDATE_EVENTS: dict[str, MediaKind] = {
     "video-candidate": "video",
     "audio-candidate": "audio",
 }
+_PRO_OFFER_ORDER: tuple[MediaKind, ...] = ("video", "audio")
+_PRO_VIDEO_STATUS_INCONSISTENT_MODE = -4
 _STATUS_EVENTS = {"video-status", "audio-status", "heartbeat"}
+_PRO_VIDEO_STATUS_NAMES = {
+    1: "normal",
+    -1: "no_image",
+    _PRO_VIDEO_STATUS_INCONSISTENT_MODE: "inconsistent_video_mode",
+}
 
 
 @dataclass(slots=True)
@@ -48,6 +55,7 @@ class _NanoKVMWebRTCSession:
     client: NanoKVMClient
     websocket: aiohttp.ClientWebSocketResponse
     reader_task: asyncio.Task[None] | None = None
+    heartbeat_task: asyncio.Task[None] | None = None
     pro_offer: ProWebRTCOffer | None = None
     pro_answers: dict[MediaKind, str] = field(default_factory=dict)
     pending_remote_candidates: list[tuple[MediaKind, RTCIceCandidateInit]] = field(
@@ -80,6 +88,7 @@ class NanoKVMWebRTCManager:
         is_pro_hardware: Callable[[], bool] | None = None,
         login_timeout_seconds: int = 15,
         websocket_heartbeat_seconds: float = 30.0,
+        signaling_heartbeat_seconds: float = 60.0,
         max_pending_ice_candidates: int = 64,
     ) -> None:
         """Initialize WebRTC manager."""
@@ -90,6 +99,7 @@ class NanoKVMWebRTCManager:
         self._is_pro_hardware = is_pro_hardware or (lambda: False)
         self._login_timeout_seconds = login_timeout_seconds
         self._websocket_heartbeat_seconds = websocket_heartbeat_seconds
+        self._signaling_heartbeat_seconds = signaling_heartbeat_seconds
         self._max_pending_ice_candidates = max_pending_ice_candidates
         self._sessions: dict[str, _NanoKVMWebRTCSession] = {}
         self._pending_candidates: dict[str, list[RTCIceCandidateInit]] = {}
@@ -126,10 +136,11 @@ class NanoKVMWebRTCManager:
             raise HomeAssistantError(
                 "NanoKVM Pro WebRTC offer does not contain audio or video media"
             )
-        if pro_offer is not None:
-            self._logger.debug("NanoKVM Pro original HA WebRTC offer SDP:\n%s", offer_sdp)
 
         registered = False
+
+        if is_pro:
+            await self._async_close_other_webrtc_sessions(session_id)
 
         async with self._session_lock:
             self._pending_candidates.setdefault(session_id, [])
@@ -146,7 +157,7 @@ class NanoKVMWebRTCManager:
             websocket = await client._session.ws_connect(
                 self._webrtc_stream_url(client.url, pro=is_pro),
                 headers={"Cookie": f"nano-kvm-token={client.token}"},
-                heartbeat=self._websocket_heartbeat_seconds,
+                heartbeat=None if is_pro else self._websocket_heartbeat_seconds,
                 ssl=client._ssl_config,
                 **self._websocket_timeout_kwargs(),
             )
@@ -163,6 +174,14 @@ class NanoKVMWebRTCManager:
             webrtc_session.reader_task = hass.async_create_task(
                 self._async_webrtc_reader(session_id, send_message)
             )
+            if is_pro:
+                self._logger.debug(
+                    "NanoKVM Pro WebRTC signaling heartbeat enabled: interval=%ss",
+                    self._signaling_heartbeat_seconds,
+                )
+                webrtc_session.heartbeat_task = hass.async_create_task(
+                    self._async_webrtc_heartbeat(session_id)
+                )
 
             if pro_offer is None:
                 await self._async_send_legacy_offer(websocket, offer_sdp)
@@ -199,20 +218,22 @@ class NanoKVMWebRTCManager:
             "NanoKVM Pro WebRTC offer media sections: %s",
             ", ".join(pro_offer.expected_kinds),
         )
+        self._logger.debug(
+            "NanoKVM Pro WebRTC offer send order: %s",
+            ", ".join(kind for kind in _PRO_OFFER_ORDER if kind in pro_offer.offers),
+        )
         if "audio" not in pro_offer.offers:
             self._logger.debug(
                 "Home Assistant WebRTC offer did not include audio; negotiating video-only"
             )
 
-        for section in pro_offer.media_sections:
+        for kind in _PRO_OFFER_ORDER:
+            section = pro_offer.section_for_kind(kind)
+            if section is None:
+                continue
             offer_sdp = pro_offer.offers.get(section.kind)
             if offer_sdp is None:
                 continue
-            self._logger.debug(
-                "NanoKVM Pro split %s WebRTC offer SDP:\n%s",
-                section.kind,
-                offer_sdp,
-            )
             offer_data = json.dumps({"type": "offer", "sdp": offer_sdp})
             await websocket.send_json(
                 {"event": f"{section.kind}-offer", "data": offer_data}
@@ -248,12 +269,13 @@ class NanoKVMWebRTCManager:
                 if event == "heartbeat":
                     continue
 
-                data = self._decode_signal_data(payload.get("data"))
+                raw_data = payload.get("data")
+                data = self._decode_signal_data(raw_data)
                 if session.pro_offer is None:
                     self._handle_legacy_event(event, data, send_message)
                 else:
                     await self._async_handle_pro_event(
-                        session_id, event, data, send_message
+                        session_id, event, data, raw_data, send_message
                     )
         except Exception as err:
             self._logger.error("Error reading NanoKVM WebRTC signaling: %s", err)
@@ -271,6 +293,23 @@ class NanoKVMWebRTCManager:
                 ws.exception(),
             )
             await self._async_close_webrtc_session(session_id)
+
+    async def _async_webrtc_heartbeat(self, session_id: str) -> None:
+        """Send NanoKVM signaling heartbeats while a WebRTC session is active."""
+        while True:
+            await asyncio.sleep(self._signaling_heartbeat_seconds)
+            async with self._session_lock:
+                session = self._sessions.get(session_id)
+
+            if session is None or session.websocket.closed:
+                return
+
+            try:
+                await session.websocket.send_json({"event": "heartbeat", "data": ""})
+            except Exception as err:
+                self._logger.debug("NanoKVM WebRTC heartbeat failed: %s", err)
+                await self._async_close_webrtc_session(session_id)
+                return
 
     def _decode_signal_message(self, raw_message: str) -> dict[str, object] | None:
         """Decode a websocket signaling envelope."""
@@ -332,11 +371,40 @@ class NanoKVMWebRTCManager:
         session_id: str,
         event: str,
         data: dict[str, object] | None,
+        raw_data: object,
         send_message: WebRTCSendMessage,
     ) -> None:
         """Handle NanoKVM Pro split video/audio WebRTC events."""
         if event in _STATUS_EVENTS:
-            self._logger.debug("NanoKVM Pro WebRTC status event %s: %s", event, data)
+            status_code = self._status_code_from_signal_data(data, raw_data)
+            status_name = (
+                _PRO_VIDEO_STATUS_NAMES.get(status_code)
+                if event == "video-status"
+                else None
+            )
+            self._logger.debug(
+                "NanoKVM Pro WebRTC status event %s: status=%s decoded=%s raw=%r",
+                event,
+                status_name or status_code,
+                data,
+                raw_data,
+            )
+            if (
+                event == "video-status"
+                and status_code == _PRO_VIDEO_STATUS_INCONSISTENT_MODE
+            ):
+                message = (
+                    "NanoKVM Pro stopped WebRTC video because another video mode "
+                    "is active"
+                )
+                send_message(
+                    WebRTCError(
+                        code="webrtc_inconsistent_video_mode",
+                        message=message,
+                    )
+                )
+                self._logger.warning("%s; closing signaling session", message)
+                await self._async_close_webrtc_session(session_id)
             return
 
         if (kind := _ANSWER_EVENTS.get(event)) is not None:
@@ -360,6 +428,33 @@ class NanoKVMWebRTCManager:
             return
 
         self._logger.debug("Unhandled NanoKVM Pro WebRTC event: %s", event)
+
+    def _status_code_from_signal_data(
+        self,
+        data: dict[str, object] | None,
+        raw_data: object,
+    ) -> int | None:
+        """Return a numeric Pro status code from a signaling status payload."""
+        if isinstance(data, dict):
+            for key in ("status", "code", "value"):
+                value = data.get(key)
+                if isinstance(value, (int, float, str)):
+                    with suppress(ValueError, TypeError):
+                        return int(value)
+
+        if isinstance(raw_data, (int, float)):
+            return int(raw_data)
+
+        if isinstance(raw_data, str):
+            with suppress(ValueError, TypeError):
+                return int(raw_data)
+
+            with suppress(json.JSONDecodeError, ValueError, TypeError):
+                parsed = json.loads(raw_data)
+                if isinstance(parsed, (int, float, str)):
+                    return int(parsed)
+
+        return None
 
     async def _async_store_pro_answer(
         self,
@@ -544,6 +639,14 @@ class NanoKVMWebRTCManager:
             with suppress(asyncio.CancelledError):
                 await session.reader_task
 
+        if (
+            session.heartbeat_task is not None
+            and session.heartbeat_task is not current_task
+        ):
+            session.heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await session.heartbeat_task
+
         with suppress(Exception):
             if not session.websocket.closed:
                 await session.websocket.close()
@@ -557,6 +660,24 @@ class NanoKVMWebRTCManager:
         if hass is None:
             return
         hass.async_create_task(self._async_close_webrtc_session(session_id))
+
+    async def _async_close_other_webrtc_sessions(self, session_id: str) -> None:
+        """Close existing sessions before starting a Pro WebRTC stream."""
+        async with self._session_lock:
+            session_ids = [
+                existing_session_id
+                for existing_session_id in self._sessions
+                if existing_session_id != session_id
+            ]
+
+        for existing_session_id in session_ids:
+            self._logger.debug(
+                "Closing existing NanoKVM WebRTC session before starting Pro session: "
+                "old_session_id=%s new_session_id=%s",
+                existing_session_id,
+                session_id,
+            )
+            await self._async_close_webrtc_session(existing_session_id)
 
     async def async_shutdown(self) -> None:
         """Close all active WebRTC sessions."""
