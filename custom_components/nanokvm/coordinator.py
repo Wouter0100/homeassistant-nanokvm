@@ -23,6 +23,7 @@ from nanokvm.client import (
     NanoKVMAuthenticationFailure,
     NanoKVMClient,
     NanoKVMError,
+    NanoKVMNotSupportedError,
 )
 from nanokvm.models import (
     GetCdRomRsp,
@@ -54,12 +55,22 @@ _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
+_INVALID_FILE_CONTENT_CODE = -2
+_INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
 
 
 def _is_auth_failure(error: Exception) -> bool:
     """Return whether the exception represents invalid credentials."""
     return isinstance(error, NanoKVMAuthenticationFailure) or (
         isinstance(error, aiohttp.ClientResponseError) and error.status == 401
+    )
+
+
+def _is_invalid_file_content_error(error: NanoKVMApiError) -> bool:
+    """Return whether the API error is NanoKVM's optional-file missing response."""
+    return (
+        error.code == _INVALID_FILE_CONTENT_CODE
+        and error.msg == _INVALID_FILE_CONTENT_MESSAGE
     )
 
 
@@ -309,10 +320,30 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         """Run an optional endpoint call; return None when the device lacks it."""
         try:
             return await call()
+        except NanoKVMNotSupportedError as err:
+            _LOGGER.debug(
+                "NanoKVM endpoint %s is not supported on this device: %s",
+                endpoint,
+                err,
+            )
+            return None
         except aiohttp.ClientResponseError as err:
             if err.status != 404:
                 raise
             _LOGGER.debug("NanoKVM endpoint %s is not available on this device", endpoint)
+            return None
+
+    async def _fetch_oled_info(self):
+        """Fetch OLED state, treating NanoKVM Pro's missing OLED file as unavailable."""
+        try:
+            return await self.client.get_oled_info()
+        except NanoKVMApiError as err:
+            if not _is_invalid_file_content_error(err):
+                raise
+            _LOGGER.debug(
+                "NanoKVM endpoint /vm/oled returned %r; treating OLED as unavailable",
+                _INVALID_FILE_CONTENT_MESSAGE,
+            )
             return None
 
     async def _async_fetch_core_data(self) -> None:
@@ -330,7 +361,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.ssh_state = await self.client.get_ssh_state()
         self.mdns_state = await self.client.get_mdns_state()
         self.hid_mode = await self.client.get_hid_mode()
-        self.oled_info = await self.client.get_oled_info()
+        self.oled_info = await self._fetch_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
         if self.supports_hdmi_endpoint:
             self.hdmi_state = await self._fetch_optional(
