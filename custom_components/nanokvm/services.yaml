@@ -124,8 +124,8 @@ set_led_strip:
       description: Optional target host. Required when multiple NanoKVM devices are configured.
       selector:
         text:
-    on:
-      name: On
+    "on":
+      name: "On"
       description: Enable or disable the LED strip.
       selector:
         boolean:
