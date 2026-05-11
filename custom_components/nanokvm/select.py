@@ -11,7 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from nanokvm.models import HidMode, MouseJigglerMode
+from nanokvm.models import DiskType, HidMode, LcdTimeFormat, MouseJigglerMode, VirtualDevice
 
 from .const import (
     DOMAIN,
@@ -28,8 +28,9 @@ from .entity import NanoKVMEntity
 class NanoKVMSelectEntityDescription(SelectEntityDescription):
     """Describes NanoKVM select entity."""
 
-    value_fn: Callable[[NanoKVMDataUpdateCoordinator], str] = lambda _: ""
+    value_fn: Callable[[NanoKVMDataUpdateCoordinator], str | None] = lambda _: ""
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
+    options_fn: Callable[[NanoKVMDataUpdateCoordinator], list[str]] | None = None
     select_option_fn: Callable[
         [NanoKVMDataUpdateCoordinator, str], Awaitable[Any]
     ] | None = None
@@ -69,6 +70,16 @@ SWAP_OPTIONS = {
 }
 SWAP_VALUES = {v: k for k, v in SWAP_OPTIONS.items()}
 
+LCD_TIME_FORMAT_OPTIONS = {
+    "12h": LcdTimeFormat.TWELVE_HOUR,
+    "24h": LcdTimeFormat.TWENTY_FOUR_HOUR,
+}
+
+DISK_TYPE_OPTIONS = {
+    "emmc": DiskType.EMMC,
+    "sdcard": DiskType.SDCARD,
+}
+
 
 def _has_hid_mode(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether HID mode information is available."""
@@ -88,6 +99,29 @@ def _has_oled(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 def _has_swap_size(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether swap size information is available."""
     return coordinator.swap_size is not None
+
+
+def _has_lcd_time_format(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether LCD time format is available."""
+    return coordinator.is_pro_hardware and coordinator.lcd_time_format is not None
+
+
+def _pro_disk_options(coordinator: NanoKVMDataUpdateCoordinator) -> list[str]:
+    """Return available Pro virtual disk type options."""
+    if coordinator.virtual_device_info is None:
+        return []
+
+    options: list[str] = []
+    if coordinator.virtual_device_info.is_emmc_exist:
+        options.append(DiskType.EMMC.value)
+    if coordinator.virtual_device_info.is_sd_card_exist:
+        options.append(DiskType.SDCARD.value)
+    return options
+
+
+def _has_pro_disk_options(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro virtual disk type options are available."""
+    return coordinator.is_pro_hardware and bool(_pro_disk_options(coordinator))
 
 
 def _hid_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
@@ -149,6 +183,43 @@ def _set_swap_size(
     return coordinator.client.set_swap_size(SWAP_OPTIONS.get(option, 0))
 
 
+def _lcd_time_format_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
+    """Return current LCD time format."""
+    if coordinator.lcd_time_format is None:
+        return None
+    return coordinator.lcd_time_format.format.value
+
+
+def _set_lcd_time_format(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
+    """Set LCD time format from option key."""
+    return coordinator.client.set_lcd_time_format(
+        LCD_TIME_FORMAT_OPTIONS.get(option, LcdTimeFormat.TWENTY_FOUR_HOUR)
+    )
+
+
+def _pro_disk_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
+    """Return current Pro virtual disk type."""
+    if coordinator.virtual_device_info is None:
+        return None
+
+    mounted_disk = coordinator.virtual_device_info.mounted_disk
+    if mounted_disk not in _pro_disk_options(coordinator):
+        return None
+    return mounted_disk
+
+
+def _set_pro_disk(
+    coordinator: NanoKVMDataUpdateCoordinator, option: str
+) -> Awaitable[Any]:
+    """Set Pro virtual disk type."""
+    return coordinator.client.update_virtual_device(
+        VirtualDevice.DISK,
+        disk_type=DISK_TYPE_OPTIONS.get(option, DiskType.EMMC),
+    )
+
+
 SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     NanoKVMSelectEntityDescription(
         key="hid_mode",
@@ -194,6 +265,29 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
         select_option_fn=_set_swap_size,
         available_fn=_has_swap_size,
     ),
+    NanoKVMSelectEntityDescription(
+        key="lcd_time_format",
+        name="LCD Time Format",
+        translation_key="lcd_time_format",
+        icon="mdi:clock-digital",
+        entity_category=EntityCategory.CONFIG,
+        options=list(LCD_TIME_FORMAT_OPTIONS.keys()),
+        value_fn=_lcd_time_format_value,
+        select_option_fn=_set_lcd_time_format,
+        available_fn=_has_lcd_time_format,
+    ),
+    NanoKVMSelectEntityDescription(
+        key="virtual_disk_type",
+        name="Virtual Disk Type",
+        translation_key="virtual_disk_type",
+        icon=ICON_DISK,
+        entity_category=EntityCategory.CONFIG,
+        options=list(DISK_TYPE_OPTIONS.keys()),
+        options_fn=_pro_disk_options,
+        value_fn=_pro_disk_value,
+        select_option_fn=_set_pro_disk,
+        available_fn=_has_pro_disk_options,
+    ),
 )
 
 
@@ -233,9 +327,16 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
         )
 
     @property
-    def current_option(self) -> str:
+    def current_option(self) -> str | None:
         """Return the current selected option."""
         return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def options(self) -> list[str]:
+        """Return selectable options."""
+        if self.entity_description.options_fn is not None:
+            return self.entity_description.options_fn(self.coordinator)
+        return self.entity_description.options
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""

@@ -15,13 +15,14 @@ device settings, diagnostics, services, and camera streaming in Home Assistant.
 
 | Area | Capabilities |
 | --- | --- |
-| Power and hardware | Power/reset actions, status LEDs, HDMI output control (PCI-E) |
-| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size, mouse jiggler, watchdog |
-| Virtual devices | Virtual network and virtual disk switches |
-| Monitoring | Mounted image, CD-ROM mode, Tailscale, Wi-Fi |
+| Power and hardware | Power/reset actions, status LEDs, HDMI output control (PCI-E), Pro HDMI capture/passthrough |
+| Device settings | SSH, mDNS, HID mode, OLED timeout, swap size, mouse jiggler, watchdog, Pro low power, Pro LCD time format |
+| Virtual devices | Virtual network, non-Pro virtual disk switch, Pro virtual mic, Pro virtual disk type |
+| Pro LED strip | On/off, brightness, horizontal bead count, vertical bead count |
+| Monitoring | Mounted image, CD-ROM mode, Tailscale, Wi-Fi, wired/wireless IP diagnostics, Pro time/static IP state |
 | Updates | Application version reporting and install action |
 | SSH diagnostics | Uptime, CPU temp, memory/storage usage when SSH is enabled |
-| Camera | HDMI still snapshots and native WebRTC streaming |
+| Camera | HDMI still snapshots on non-Pro models and native WebRTC streaming |
 
 ## Installation
 
@@ -66,18 +67,20 @@ Notes:
 
 - Host updates from discovery are disabled when **Use static host only** is enabled.
 - Camera stream availability depends on HDMI input/source status.
+- NanoKVM Pro still snapshots are skipped to avoid interrupting WebRTC video mode.
 - Feature-specific entities only appear when the device reports support for them.
 
 ## Entities
 
 | Platform | Highlights |
 | --- | --- |
-| Binary sensor | Power LED, HDD LED, Wi-Fi connected, CD-ROM mode |
-| Button | Power/Reset buttons, reboot, reset HID/HDMI |
-| Camera | HDMI stream camera with still snapshots and WebRTC |
-| Select | HID mode, Mouse Jiggler, OLED timeout, Swap size |
-| Sensor | Mounted image, Tailscale, SSH diagnostics |
-| Switch | Power, SSH, mDNS, Virtual network/disk, HDMI output, watchdog |
+| Binary sensor | Power LED, HDD LED, Wi-Fi/wired connected, CD-ROM mode, Pro static IP enabled, Pro time synchronized |
+| Button | Power/Reset buttons, reboot, reset HID/HDMI, Pro sync time |
+| Camera | HDMI stream camera with WebRTC and non-Pro still snapshots |
+| Number | Pro LED brightness, horizontal beads, vertical beads |
+| Select | HID mode, Mouse Jiggler, OLED timeout, Swap size, Pro LCD time format, Pro virtual disk type |
+| Sensor | IP address, wired/wireless IP address, mounted image, Tailscale, SSH diagnostics |
+| Switch | Power, SSH, mDNS, virtual network/disk, HDMI output, watchdog, Pro HDMI capture/passthrough, Pro low power, Pro LED strip, Pro virtual mic |
 | Update | Application version and install action |
 
 Notes:
@@ -87,6 +90,7 @@ Notes:
 - Wi-Fi entities only appear when the device reports Wi-Fi support.
 - SSH diagnostics appear after SSH is enabled on the NanoKVM.
 - The watchdog switch requires SSH and NanoKVM application version `2.2.2` or newer.
+- Pro LED bead counts must satisfy `horizontal + (2 * vertical) <= 150`.
 
 ## Hardware Compatibility
 
@@ -95,22 +99,26 @@ Notes:
 | HDMI switch/button controls | PCI-E models |
 | HDD LED binary sensor | Alpha models |
 | SSH diagnostic sensors | Any model with SSH enabled |
-| Swap size, CD-ROM mode, virtual network/disk switches | Non-Pro models |
+| Swap size, CD-ROM mode, virtual disk switch | Non-Pro models |
+| Virtual network switch | Non-Pro and Pro models |
+| HDMI capture/passthrough, low power, LED strip, virtual mic, LCD time format, sync time | Pro models |
+| Wired/wireless IP sensors | Created when that connection type is active |
 
 ### NanoKVM Pro
 
-NanoKVM Pro devices are supported. Because the Pro firmware no longer
-exposes the `/vm/swap`, `/vm/hdmi`, and `/storage/cdrom` endpoints and
-uses a different schema on `/vm/device/virtual`, the following entities
-are hidden on Pro:
+NanoKVM Pro devices are supported through the `nanokvm` Python library.
+The integration exposes Pro controls for HDMI capture/passthrough, low power,
+LED strip configuration, virtual network, virtual microphone, virtual disk
+type, LCD time format, sync time, static IP state, and time synchronization
+state.
+
+Because the Pro firmware does not expose the same endpoints as non-Pro models,
+these non-Pro entities are hidden on Pro:
 
 - Swap size select
 - HDMI output switch and Reset HDMI button
 - CD-ROM Mode binary sensor
-- Virtual Network and Virtual Disk switches
-
-All other entities work. Planned Pro-specific additions will be documented
-in a future update.
+- Virtual Disk switch
 
 ## Services
 
@@ -126,11 +134,19 @@ For full call examples, see [`SERVICES.md`](SERVICES.md).
 | `reset_hid` | `host` | Reset HID subsystem |
 | `wake_on_lan` | `host`, `mac` | Send Wake-on-LAN packet |
 | `set_mouse_jiggler` | `host`, `enabled`, `mode` | Set mouse jiggler state |
+| `set_led_strip` | `host`, `on`, `brightness`, `horizontal_count`, `vertical_count` | Set NanoKVM Pro LED strip state |
+| `scan_wifi` | `host` | Scan Wi-Fi networks and return the Pro response |
+| `list_images` | `host` | Return available NanoKVM images |
+| `is_image_download_enabled` | `host` | Return whether image downloading is enabled |
+| `get_image_download_status` | `host` | Return image download status |
+| `list_custom_edids` | `host` | Return custom EDIDs available on NanoKVM Pro |
 
 Notes:
 
 - `push_button.duration` range is `100-5000` ms.
+- `set_led_strip.brightness` range is `0-100`; LED beads must satisfy `horizontal + (2 * vertical) <= 150`.
 - `host` is optional when one NanoKVM is configured and required when multiple devices are configured.
+- Response services return structured data to callers that request a response.
 
 ## Example Automation
 
@@ -156,6 +172,8 @@ automation:
 | Missing entities | Some entities only appear after the related feature is available (for example SSH enabled or media mounted) |
 | No SSH sensors | Enable SSH on NanoKVM |
 | No HDMI controls | HDMI controls only appear on PCI-E hardware |
+| No Pro still image | Pro snapshots are intentionally skipped to avoid interrupting WebRTC video |
+| Missing wired/wireless IP sensor | The sensor appears after the device reports an active address for that connection type |
 
 ## Supported Languages
 

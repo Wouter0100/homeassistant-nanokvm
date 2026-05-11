@@ -184,7 +184,7 @@ class NanoKVMWebRTCManager:
                 )
 
             if pro_offer is None:
-                await self._async_send_legacy_offer(websocket, offer_sdp)
+                await self._async_send_non_pro_offer(websocket, offer_sdp)
             else:
                 await self._async_send_pro_offers(websocket, pro_offer)
 
@@ -201,10 +201,10 @@ class NanoKVMWebRTCManager:
                 f"Unable to establish NanoKVM WebRTC signaling: {err}"
             ) from err
 
-    async def _async_send_legacy_offer(
+    async def _async_send_non_pro_offer(
         self, websocket: aiohttp.ClientWebSocketResponse, offer_sdp: str
     ) -> None:
-        """Send the legacy NanoKVM single video offer."""
+        """Send the non-Pro NanoKVM single video offer."""
         offer_data = json.dumps({"type": "offer", "sdp": offer_sdp})
         await websocket.send_json({"event": "video-offer", "data": offer_data})
 
@@ -272,7 +272,7 @@ class NanoKVMWebRTCManager:
                 raw_data = payload.get("data")
                 data = self._decode_signal_data(raw_data)
                 if session.pro_offer is None:
-                    self._handle_legacy_event(event, data, send_message)
+                    self._handle_non_pro_event(event, data, send_message)
                 else:
                     await self._async_handle_pro_event(
                         session_id, event, data, raw_data, send_message
@@ -342,13 +342,13 @@ class NanoKVMWebRTCManager:
             return None
         return data
 
-    def _handle_legacy_event(
+    def _handle_non_pro_event(
         self,
         event: str,
         data: dict[str, object] | None,
         send_message: WebRTCSendMessage,
     ) -> None:
-        """Handle legacy NanoKVM WebRTC events."""
+        """Handle non-Pro NanoKVM WebRTC events."""
         if data is None:
             return
 
@@ -551,7 +551,7 @@ class NanoKVMWebRTCManager:
         session: _NanoKVMWebRTCSession,
         candidate: RTCIceCandidateInit,
     ) -> None:
-        """Send one frontend ICE candidate to legacy or Pro signaling."""
+        """Send one frontend ICE candidate to non-Pro or Pro signaling."""
         if session.pro_offer is None:
             await self._async_send_candidate(
                 session.websocket, "video-candidate", candidate

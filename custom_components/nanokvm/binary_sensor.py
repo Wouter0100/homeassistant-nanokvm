@@ -20,8 +20,10 @@ from nanokvm.models import HWVersion
 from .const import (
     DOMAIN,
     ICON_DISK,
+    ICON_NETWORK,
     ICON_POWER,
     SIGNAL_NEW_MEDIA_ENTITIES,
+    SIGNAL_NEW_NETWORK_ENTITIES,
     ICON_WIFI,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -64,6 +66,31 @@ def _has_mounted_image(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 def _cdrom_supported(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether the dedicated /storage/cdrom endpoint exists on this device."""
     return coordinator.supports_cdrom_endpoint
+
+
+def _has_connection_type(
+    coordinator: NanoKVMDataUpdateCoordinator, connection_type: str
+) -> bool:
+    """Return whether an IP connection type is active."""
+    return any(
+        address.addr and address.type.casefold() == connection_type
+        for address in coordinator.device_info.ips
+    )
+
+
+def _wired_active(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether a wired network connection is active."""
+    return _has_connection_type(coordinator, "wired")
+
+
+def _static_ip_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro static IP state is available."""
+    return coordinator.is_pro_hardware and coordinator.static_ip is not None
+
+
+def _time_status_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro time synchronization state is available."""
+    return coordinator.is_pro_hardware and coordinator.time_status is not None
 
 
 MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
@@ -118,6 +145,40 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
         available_fn=_wifi_supported,
         should_create_fn=_wifi_supported,
     ),
+    NanoKVMBinarySensorEntityDescription(
+        key="wired_connected",
+        name="Wired Connected",
+        translation_key="wired_connected",
+        icon=ICON_NETWORK,
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_wired_active,
+        should_create_fn=_wired_active,
+    ),
+    NanoKVMBinarySensorEntityDescription(
+        key="static_ip_enabled",
+        name="Static IP Enabled",
+        translation_key="static_ip_enabled",
+        icon=ICON_NETWORK,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: bool(
+            coordinator.static_ip and coordinator.static_ip.enabled
+        ),
+        available_fn=_static_ip_available,
+        should_create_fn=_static_ip_available,
+    ),
+    NanoKVMBinarySensorEntityDescription(
+        key="time_synchronized",
+        name="Time Synchronized",
+        translation_key="time_synchronized",
+        icon="mdi:clock-check-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: bool(
+            coordinator.time_status and coordinator.time_status.is_synchronized
+        ),
+        available_fn=_time_status_available,
+        should_create_fn=_time_status_available,
+    ),
 )
 
 
@@ -162,11 +223,45 @@ async def async_setup_entry(
     if _has_mounted_image(coordinator):
         async_add_media_binary_sensors()
 
+    network_entities_added = {
+        description.key
+        for description in BINARY_SENSORS
+        if description.should_create_fn(coordinator)
+    }
+
+    @callback
+    def async_add_network_binary_sensors(connection_type: str) -> None:
+        """Add network binary sensors when a connection type appears."""
+        if connection_type != "wired":
+            return
+
+        entities = [
+            NanoKVMBinarySensor(
+                coordinator=coordinator,
+                description=description,
+            )
+            for description in BINARY_SENSORS
+            if description.key not in network_entities_added
+            and description.should_create_fn(coordinator)
+        ]
+        if not entities:
+            return
+
+        async_add_entities(entities)
+        network_entities_added.update(entity.entity_description.key for entity in entities)
+
     entry.async_on_unload(
         async_dispatcher_connect(
             hass,
             SIGNAL_NEW_MEDIA_ENTITIES.format(entry.entry_id),
             async_add_media_binary_sensors,
+        )
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            SIGNAL_NEW_NETWORK_ENTITIES.format(entry.entry_id),
+            async_add_network_binary_sensors,
         )
     )
 

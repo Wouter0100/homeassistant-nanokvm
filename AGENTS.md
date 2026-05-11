@@ -35,13 +35,17 @@ The integration follows the standard structure for a Home Assistant
 
 - **`coordinator.py`**: Hosts `NanoKVMDataUpdateCoordinator`.
   - Central polling logic (`_async_update_data`) and API fetch helpers.
-  - Handles reauthentication, storage-state fetches, and SSH metric refresh.
+  - Handles reauthentication, storage-state fetches, optional NanoKVM Pro
+    state, dynamic media/network/SSH entities, and SSH metric refresh.
+  - Gates non-Pro-only endpoints such as swap size, CD-ROM state, HDMI output,
+    and non-Pro virtual disk controls.
 
 - **`entity.py`**: Defines `NanoKVMEntity` base class.
   - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
 
 - **`services.py`**: Service schemas, registration, and handlers.
-  - Implements all `nanokvm.*` service behavior and unregister logic.
+  - Implements all `nanokvm.*` service behavior, response services, and
+    unregister logic.
 
 - **`config_flow.py`**: Manages the user configuration flow in Home Assistant.
   - Implements `ConfigFlow` for manual setup and zeroconf discovery.
@@ -60,6 +64,9 @@ The integration follows the standard structure for a Home Assistant
 - **`ssh_metrics.py`**: SSH metrics collection implementation used by the
   coordinator.
 
+- **`led.py`**: Shared NanoKVM Pro LED strip validation and config helpers.
+  - Enforces LED brightness and bead-count constraints for entities/services.
+
 - **`manifest.json`**: Integration metadata.
   - Domain, name, version, dependencies (including `zeroconf`).
   - PyPI requirement (`nanokvm`).
@@ -75,6 +82,8 @@ Assistant entity type:
 - `button.py`
 - `camera.py`
 - `camera_webrtc.py` (WebRTC helper used by the camera platform)
+- `camera_webrtc_sdp.py` (NanoKVM Pro SDP split/merge helpers)
+- `number.py`
 - `select.py`
 - `sensor.py`
 - `switch.py`
@@ -112,6 +121,13 @@ Each platform follows a similar pattern:
 - **Coordinator pattern**:
   `DataUpdateCoordinator` provides one polling path and shared state for all
   entities.
+- **Optional and dynamic entities**:
+  Some entities are created only after the coordinator sees supporting state,
+  such as mounted media, active wired/wireless connections, or SSH metrics.
+- **NanoKVM Pro compatibility**:
+  Pro devices expose several APIs with different schemas from non-Pro models.
+  Keep Pro-specific polling optional and keep non-Pro-only entities gated by
+  hardware support.
 - **Declarative entities**:
   Dataclass-based entity descriptions keep entity definitions compact.
 - **`nanokvm` library boundary**:
@@ -127,12 +143,16 @@ Each platform follows a similar pattern:
 
 Run these checks locally before pushing:
 
-1. Python lint:
-   - `ruff check custom_components/nanokvm`
-   - If needed: `.\venv\Scripts\python -m ruff check custom_components/nanokvm`
-2. Validate metadata JSON:
-   - `Get-Content hacs.json | ConvertFrom-Json > $null`
-   - `Get-Content custom_components/nanokvm/manifest.json | ConvertFrom-Json > $null`
+1. Python checks:
+   - `python -m ruff check custom_components/nanokvm`
+   - `python -m py_compile custom_components/nanokvm/*.py`
+2. Validate JSON metadata, strings, and translations:
+   - `python -m json.tool hacs.json`
+   - `python -m json.tool custom_components/nanokvm/manifest.json`
+   - `python -m json.tool custom_components/nanokvm/strings.json`
+   - `python -m json.tool custom_components/nanokvm/translations/en.json`
+   - `python -m json.tool custom_components/nanokvm/translations/fr.json`
+   - `python -m json.tool custom_components/nanokvm/translations/pt-BR.json`
 3. Verify the integration against a Home Assistant test instance and inspect logs.
 
 ## Required GitHub Workflows

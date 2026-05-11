@@ -73,11 +73,20 @@
       "wifi_connected": {
         "name": "WiFi Connected"
       },
+      "wired_connected": {
+        "name": "Wired Connected"
+      },
       "cdrom_mode": {
         "name": "CD-ROM Mode"
       },
       "mouse_jiggler": {
         "name": "Mouse Jiggler"
+      },
+      "static_ip_enabled": {
+        "name": "Static IP Enabled"
+      },
+      "time_synchronized": {
+        "name": "Time Synchronized"
       }
     },
     "sensor": {
@@ -95,6 +104,22 @@
       },
       "ip_address": {
         "name": "IP Address",
+        "state_attributes": {
+          "addresses": {
+            "name": "Addresses"
+          }
+        }
+      },
+      "wired_ip_address": {
+        "name": "Wired IP Address",
+        "state_attributes": {
+          "addresses": {
+            "name": "Addresses"
+          }
+        }
+      },
+      "wireless_ip_address": {
+        "name": "Wireless IP Address",
         "state_attributes": {
           "addresses": {
             "name": "Addresses"
@@ -167,6 +192,21 @@
       "hdmi": {
         "name": "HDMI Output"
       },
+      "hdmi_capture": {
+        "name": "HDMI Capture"
+      },
+      "hdmi_passthrough": {
+        "name": "HDMI Passthrough"
+      },
+      "low_power": {
+        "name": "Low Power"
+      },
+      "led_strip": {
+        "name": "LED Strip"
+      },
+      "virtual_mic": {
+        "name": "Virtual Microphone"
+      },
       "watchdog": {
         "name": "Watchdog"
       }
@@ -210,6 +250,31 @@
           "256_mb": "256 MB",
           "512_mb": "512 MB"
         }
+      },
+      "lcd_time_format": {
+        "name": "LCD Time Format",
+        "state": {
+          "12h": "12-hour",
+          "24h": "24-hour"
+        }
+      },
+      "virtual_disk_type": {
+        "name": "Virtual Disk Type",
+        "state": {
+          "emmc": "eMMC",
+          "sdcard": "SD Card"
+        }
+      }
+    },
+    "number": {
+      "led_brightness": {
+        "name": "LED Brightness"
+      },
+      "led_horizontal_beads": {
+        "name": "LED Horizontal Beads"
+      },
+      "led_vertical_beads": {
+        "name": "LED Vertical Beads"
       }
     },
     "update": {
@@ -232,6 +297,9 @@
       },
       "reset_hid": {
         "name": "Reset HID"
+      },
+      "sync_time": {
+        "name": "Sync Time"
       }
     },
     "camera": {
@@ -332,6 +400,82 @@
         "mode": {
           "name": "Mode",
           "description": "The mouse jiggler mode (absolute or relative)."
+        }
+      }
+    },
+    "set_led_strip": {
+      "name": "Set LED Strip",
+      "description": "Configure NanoKVM Pro LED strip settings.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        },
+        "on": {
+          "name": "On",
+          "description": "Enable or disable the LED strip."
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "LED strip brightness percentage."
+        },
+        "horizontal_count": {
+          "name": "Horizontal Beads",
+          "description": "Horizontal LED bead count."
+        },
+        "vertical_count": {
+          "name": "Vertical Beads",
+          "description": "Vertical LED bead count."
+        }
+      }
+    },
+    "scan_wifi": {
+      "name": "Scan Wi-Fi",
+      "description": "Scan nearby Wi-Fi networks and return the NanoKVM Pro response.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
+    },
+    "list_images": {
+      "name": "List Images",
+      "description": "List images available on the NanoKVM.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
+    },
+    "is_image_download_enabled": {
+      "name": "Is Image Download Enabled",
+      "description": "Return whether image downloading is enabled on the NanoKVM.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
+    },
+    "get_image_download_status": {
+      "name": "Get Image Download Status",
+      "description": "Return the current NanoKVM image download status.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
+        }
+      }
+    },
+    "list_custom_edids": {
+      "name": "List Custom EDIDs",
+      "description": "List custom EDIDs available on a NanoKVM Pro.",
+      "fields": {
+        "host": {
+          "name": "Host",
+          "description": "Optional target host. Required when multiple NanoKVM devices are configured."
         }
       }
     }
