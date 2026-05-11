@@ -114,3 +114,93 @@ set_mouse_jiggler:
           options:
             - "absolute"
             - "relative"
+
+set_led_strip:
+  name: Set LED Strip
+  description: Configure NanoKVM Pro LED strip settings.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
+    on:
+      name: On
+      description: Enable or disable the LED strip.
+      selector:
+        boolean:
+    brightness:
+      name: Brightness
+      description: LED strip brightness percentage.
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+          unit_of_measurement: "%"
+    horizontal_count:
+      name: Horizontal Beads
+      description: Horizontal LED bead count.
+      selector:
+        number:
+          min: 1
+          max: 148
+          mode: box
+    vertical_count:
+      name: Vertical Beads
+      description: Vertical LED bead count.
+      selector:
+        number:
+          min: 1
+          max: 74
+          mode: box
+
+scan_wifi:
+  name: Scan Wi-Fi
+  description: Scan nearby Wi-Fi networks and return the NanoKVM Pro response.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
+
+list_images:
+  name: List Images
+  description: List images available on the NanoKVM.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
+
+is_image_download_enabled:
+  name: Is Image Download Enabled
+  description: Return whether image downloading is enabled on the NanoKVM.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
+
+get_image_download_status:
+  name: Get Image Download Status
+  description: Return the current NanoKVM image download status.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
+
+list_custom_edids:
+  name: List Custom EDIDs
+  description: List custom EDIDs available on a NanoKVM Pro.
+  fields:
+    host:
+      name: Host
+      description: Optional target host. Required when multiple NanoKVM devices are configured.
+      selector:
+        text:
