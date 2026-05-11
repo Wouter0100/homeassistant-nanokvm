@@ -11,6 +11,7 @@ from homeassistant.components.switch import SwitchEntity, SwitchEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -20,6 +21,7 @@ from .const import (
     DOMAIN,
     ICON_DISK,
     ICON_HDMI,
+    ICON_LED_STRIP,
     ICON_MDNS,
     ICON_NETWORK,
     ICON_SSH,
@@ -29,6 +31,7 @@ from .const import (
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
+from .led import build_led_strip_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,9 +69,65 @@ def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     return coordinator.supports_watchdog and coordinator.watchdog_enabled is not None
 
 
-def _virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
-    """Return whether the legacy virtual-device switches apply to this device."""
-    return coordinator.supports_legacy_virtual_device_controls
+def _non_pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the non-Pro virtual-device switches apply to this device."""
+    return coordinator.supports_non_pro_virtual_device_controls
+
+
+def _pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro virtual-device controls are available."""
+    return coordinator.is_pro_hardware and coordinator.virtual_device_info is not None
+
+
+def _pro_virtual_mic_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro virtual microphone control is available."""
+    return (
+        _pro_virtual_device_available(coordinator)
+        and coordinator.virtual_device_info is not None
+        and coordinator.virtual_device_info.mic is not None
+    )
+
+
+def _hdmi_capture_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro HDMI capture control is available."""
+    return coordinator.is_pro_hardware and coordinator.hdmi_capture is not None
+
+
+def _hdmi_passthrough_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro HDMI passthrough control is available."""
+    return coordinator.is_pro_hardware and coordinator.hdmi_passthrough is not None
+
+
+def _low_power_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro low-power mode control is available."""
+    return coordinator.is_pro_hardware and coordinator.low_power is not None
+
+
+def _led_strip_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether Pro LED strip control is available."""
+    return coordinator.is_pro_hardware and coordinator.led_strip is not None
+
+
+def _led_strip_value(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return LED strip state."""
+    return bool(coordinator.led_strip and coordinator.led_strip.on)
+
+
+async def _set_led_strip_on(
+    coordinator: NanoKVMDataUpdateCoordinator, enabled: bool
+) -> None:
+    """Set LED strip power while preserving other LED settings."""
+    try:
+        config = build_led_strip_config(coordinator.led_strip, on=enabled)
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
+
+    await coordinator.client.set_led_strip(
+        on=config.on,
+        brightness=config.brightness,
+        horizontal_count=config.horizontal_count,
+        vertical_count=config.vertical_count,
+    )
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
@@ -105,7 +164,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
         ),
-        available_fn=_virtual_device_available,
+        available_fn=_non_pro_virtual_device_available,
         virtual_device=VirtualDevice.NETWORK,
     ),
     NanoKVMSwitchEntityDescription(
@@ -117,8 +176,32 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.disk
         ),
-        available_fn=_virtual_device_available,
+        available_fn=_non_pro_virtual_device_available,
         virtual_device=VirtualDevice.DISK,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="virtual_network",
+        name="Virtual Network",
+        translation_key="virtual_network",
+        icon=ICON_NETWORK,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda coordinator: bool(
+            coordinator.virtual_device_info and coordinator.virtual_device_info.network
+        ),
+        available_fn=_pro_virtual_device_available,
+        virtual_device=VirtualDevice.NETWORK,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="virtual_mic",
+        name="Virtual Microphone",
+        translation_key="virtual_mic",
+        icon="mdi:microphone",
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda coordinator: bool(
+            coordinator.virtual_device_info and coordinator.virtual_device_info.mic
+        ),
+        available_fn=_pro_virtual_mic_available,
+        virtual_device=VirtualDevice.MIC,
     ),
     NanoKVMSwitchEntityDescription(
         key="power",
@@ -141,6 +224,56 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
         turn_on_fn=lambda coordinator: coordinator.client.enable_hdmi(),
         turn_off_fn=lambda coordinator: coordinator.client.disable_hdmi(),
         available_fn=_hdmi_available,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="hdmi_capture",
+        name="HDMI Capture",
+        translation_key="hdmi_capture",
+        icon=ICON_HDMI,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda coordinator: bool(
+            coordinator.hdmi_capture and coordinator.hdmi_capture.enabled
+        ),
+        turn_on_fn=lambda coordinator: coordinator.client.set_hdmi_capture(True),
+        turn_off_fn=lambda coordinator: coordinator.client.set_hdmi_capture(False),
+        available_fn=_hdmi_capture_available,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="hdmi_passthrough",
+        name="HDMI Passthrough",
+        translation_key="hdmi_passthrough",
+        icon=ICON_HDMI,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda coordinator: bool(
+            coordinator.hdmi_passthrough and coordinator.hdmi_passthrough.enabled
+        ),
+        turn_on_fn=lambda coordinator: coordinator.client.set_hdmi_passthrough(True),
+        turn_off_fn=lambda coordinator: coordinator.client.set_hdmi_passthrough(False),
+        available_fn=_hdmi_passthrough_available,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="low_power",
+        name="Low Power",
+        translation_key="low_power",
+        icon="mdi:power-sleep",
+        entity_category=EntityCategory.CONFIG,
+        value_fn=lambda coordinator: bool(
+            coordinator.low_power and coordinator.low_power.enabled
+        ),
+        turn_on_fn=lambda coordinator: coordinator.client.set_low_power(True),
+        turn_off_fn=lambda coordinator: coordinator.client.set_low_power(False),
+        available_fn=_low_power_available,
+    ),
+    NanoKVMSwitchEntityDescription(
+        key="led_strip",
+        name="LED Strip",
+        translation_key="led_strip",
+        icon=ICON_LED_STRIP,
+        entity_category=EntityCategory.CONFIG,
+        value_fn=_led_strip_value,
+        turn_on_fn=lambda coordinator: _set_led_strip_on(coordinator, True),
+        turn_off_fn=lambda coordinator: _set_led_strip_on(coordinator, False),
+        available_fn=_led_strip_available,
     ),
 )
 
@@ -165,7 +298,7 @@ async def async_setup_entry(
     """Set up NanoKVM switch based on a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities = []
+    entities: list[NanoKVMSwitch] = []
     for description in SWITCHES:
         if not description.available_fn(coordinator):
             continue
