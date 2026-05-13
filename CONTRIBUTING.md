@@ -20,15 +20,24 @@ Recommended flow:
 - Keep changes focused and small when possible.
 - AI-assisted coding is welcome, but contributors are responsible for
   understanding, reviewing, and validating generated changes.
-- Update docs/translations when behavior or user-facing text changes.
+- Update README, SERVICES, strings, and translations together when behavior,
+  services, entities, or user-facing text changes.
 - Add tests for bug fixes and new behavior when practical.
 
 ## Validation
 
 Before opening a PR, run:
 
-1. `ruff check custom_components/nanokvm`
-2. Test the integration on a Home Assistant instance (if relevant)
+1. `python -m ruff check custom_components/nanokvm`
+2. `python -m py_compile custom_components/nanokvm/*.py`
+3. `python -m json.tool hacs.json`
+4. `python -m json.tool custom_components/nanokvm/manifest.json`
+5. `python -m json.tool custom_components/nanokvm/strings.json`
+6. `python -m json.tool custom_components/nanokvm/translations/en.json`
+7. `python -m json.tool custom_components/nanokvm/translations/fr.json`
+8. `python -m json.tool custom_components/nanokvm/translations/pt-BR.json`
+
+When behavior changes, also test the integration on a Home Assistant instance.
 
 CI must pass on the PR branch:
 

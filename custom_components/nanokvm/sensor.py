@@ -25,6 +25,7 @@ from .const import (
     ICON_IMAGE,
     ICON_NETWORK,
     SIGNAL_NEW_MEDIA_ENTITIES,
+    SIGNAL_NEW_NETWORK_ENTITIES,
     ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
 )
@@ -84,6 +85,61 @@ def _ip_address_attributes(coordinator: NanoKVMDataUpdateCoordinator) -> dict[st
     }
 
 
+def _addresses_for_connection_type(
+    coordinator: NanoKVMDataUpdateCoordinator, connection_type: str
+) -> list[Any]:
+    """Return NanoKVM addresses for a connection type."""
+    return [
+        address
+        for address in coordinator.device_info.ips
+        if address.type.casefold() == connection_type
+    ]
+
+
+def _has_connection_type(
+    coordinator: NanoKVMDataUpdateCoordinator, connection_type: str
+) -> bool:
+    """Return whether an IP connection type is active."""
+    return any(
+        address.addr
+        for address in _addresses_for_connection_type(coordinator, connection_type)
+    )
+
+
+def _connection_ip_value(
+    coordinator: NanoKVMDataUpdateCoordinator, connection_type: str
+) -> str | None:
+    """Return preferred IP address for a connection type."""
+    addresses = _addresses_for_connection_type(coordinator, connection_type)
+    if not addresses:
+        return None
+
+    for address in addresses:
+        if address.version == "IPv4":
+            return address.addr
+
+    return addresses[0].addr
+
+
+def _connection_ip_attributes(
+    coordinator: NanoKVMDataUpdateCoordinator, connection_type: str
+) -> dict[str, Any]:
+    """Return reported addresses for a connection type."""
+    return {
+        "addresses": [
+            {
+                "name": address.name,
+                "addr": address.addr,
+                "version": address.version,
+                "type": address.type,
+            }
+            for address in _addresses_for_connection_type(
+                coordinator, connection_type
+            )
+        ]
+    }
+
+
 def _tailscale_state_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
     """Return normalized tailscale state value."""
     if coordinator.tailscale_status is None:
@@ -121,6 +177,7 @@ class NanoKVMSensorEntityDescription(SensorEntityDescription):
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     should_create_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     attributes_fn: Callable[[NanoKVMDataUpdateCoordinator], dict[str, Any]] = lambda _: {}
+    connection_type: str | None = None
 
 
 MEDIA_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
@@ -155,6 +212,41 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_tailscale_state_value,
         attributes_fn=_tailscale_attributes,
+    ),
+)
+
+NETWORK_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
+    NanoKVMSensorEntityDescription(
+        key="wired_ip_address",
+        name="Wired IP Address",
+        translation_key="wired_ip_address",
+        icon=ICON_NETWORK,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        connection_type="wired",
+        value_fn=lambda coordinator: _connection_ip_value(coordinator, "wired"),
+        available_fn=lambda coordinator: _has_connection_type(coordinator, "wired"),
+        should_create_fn=lambda coordinator: _has_connection_type(
+            coordinator, "wired"
+        ),
+        attributes_fn=lambda coordinator: _connection_ip_attributes(
+            coordinator, "wired"
+        ),
+    ),
+    NanoKVMSensorEntityDescription(
+        key="wireless_ip_address",
+        name="Wireless IP Address",
+        translation_key="wireless_ip_address",
+        icon="mdi:wifi",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        connection_type="wireless",
+        value_fn=lambda coordinator: _connection_ip_value(coordinator, "wireless"),
+        available_fn=lambda coordinator: _has_connection_type(coordinator, "wireless"),
+        should_create_fn=lambda coordinator: _has_connection_type(
+            coordinator, "wireless"
+        ),
+        attributes_fn=lambda coordinator: _connection_ip_attributes(
+            coordinator, "wireless"
+        ),
     ),
 )
 
@@ -221,9 +313,34 @@ async def async_setup_entry(
             coordinator=coordinator,
             description=description,
         )
-        for description in SENSORS
+        for description in (*SENSORS, *NETWORK_SENSORS)
         if description.should_create_fn(coordinator)
     )
+
+    network_sensor_keys_added = {
+        description.key
+        for description in NETWORK_SENSORS
+        if description.should_create_fn(coordinator)
+    }
+
+    @callback
+    def async_add_network_sensors(connection_type: str) -> None:
+        """Add per-connection IP sensors when a connection type appears."""
+        entities = [
+            NanoKVMSensor(
+                coordinator=coordinator,
+                description=description,
+            )
+            for description in NETWORK_SENSORS
+            if description.connection_type == connection_type
+            and description.key not in network_sensor_keys_added
+            and description.should_create_fn(coordinator)
+        ]
+        if not entities:
+            return
+
+        async_add_entities(entities)
+        network_sensor_keys_added.update(entity.entity_description.key for entity in entities)
 
     media_entities_added = False
 
@@ -279,6 +396,13 @@ async def async_setup_entry(
     entry.async_on_unload(
         async_dispatcher_connect(
             hass, SIGNAL_NEW_MEDIA_ENTITIES.format(entry.entry_id), async_add_media_sensors
+        )
+    )
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            SIGNAL_NEW_NETWORK_ENTITIES.format(entry.entry_id),
+            async_add_network_sensors,
         )
     )
     entry.async_on_unload(

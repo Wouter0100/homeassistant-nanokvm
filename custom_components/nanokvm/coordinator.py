@@ -8,7 +8,6 @@ import logging
 from typing import Any
 
 import aiohttp
-import async_timeout
 from awesomeversion import AwesomeVersion, AwesomeVersionException
 
 from homeassistant.config_entries import ConfigEntry
@@ -23,8 +22,16 @@ from nanokvm.client import (
     NanoKVMAuthenticationFailure,
     NanoKVMClient,
     NanoKVMError,
+    NanoKVMNotSupportedError,
 )
-from nanokvm.models import GetCdRomRsp, GetInfoRsp, GetMountedImageRsp, GetVersionRsp, HidMode
+from nanokvm.models import (
+    GetCdRomRsp,
+    GetInfoRsp,
+    GetMountedImageRsp,
+    GetVersionRsp,
+    HidMode,
+    HWVersion,
+)
 
 from .const import (
     CONF_SSL_FINGERPRINT,
@@ -32,6 +39,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     SIGNAL_NEW_MEDIA_ENTITIES,
+    SIGNAL_NEW_NETWORK_ENTITIES,
     SIGNAL_NEW_SSH_SENSORS,
     SIGNAL_NEW_SSH_SWITCHES,
 )
@@ -47,12 +55,22 @@ _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
+_INVALID_FILE_CONTENT_CODE = -2
+_INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
 
 
 def _is_auth_failure(error: Exception) -> bool:
     """Return whether the exception represents invalid credentials."""
     return isinstance(error, NanoKVMAuthenticationFailure) or (
         isinstance(error, aiohttp.ClientResponseError) and error.status == 401
+    )
+
+
+def _is_invalid_file_content_error(error: NanoKVMApiError) -> bool:
+    """Return whether the API error is NanoKVM's optional-file missing response."""
+    return (
+        error.code == _INVALID_FILE_CONTENT_CODE
+        and error.msg == _INVALID_FILE_CONTENT_MESSAGE
     )
 
 
@@ -87,6 +105,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.cdrom_status = None
         self.mouse_jiggler_state = None
         self.hdmi_state = None
+        self.hdmi_capture = None
+        self.hdmi_passthrough = None
+        self.low_power = None
+        self.led_strip = None
+        self.lcd_time_format = None
+        self.time_status = None
+        self.static_ip = None
         self.swap_size = None
         self.tailscale_status = None
         self.uptime = None
@@ -96,6 +121,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.storage_total = None
         self.storage_used_percent = None
         self.media_entities_created = False
+        self.network_entities_created: set[str] = set()
         self.ssh_sensors_created = False
         self.ssh_switches_created = False
         self.ssh_metrics_collector = None
@@ -187,11 +213,12 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_with_client(self) -> dict[str, Any]:
         """Fetch data using the current client instance."""
-        async with self.client, async_timeout.timeout(_UPDATE_TIMEOUT_SECONDS):
+        async with self.client, asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
             if not self.client.token:
                 await self.client.authenticate(self.username, self.password)
 
             await self._async_fetch_core_data()
+            self._async_maybe_create_network_entities()
             await self._async_fetch_storage_data()
             self._async_maybe_create_media_entities()
             await self._async_refresh_ssh_data()
@@ -298,22 +325,113 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
         return False
 
+    async def _fetch_optional(self, endpoint: str, call):
+        """Run an optional endpoint call; return None when the device lacks it."""
+        try:
+            return await call()
+        except NanoKVMNotSupportedError as err:
+            _LOGGER.debug(
+                "NanoKVM endpoint %s is not supported on this device: %s",
+                endpoint,
+                err,
+            )
+            return None
+        except NanoKVMApiError as err:
+            _LOGGER.debug(
+                "NanoKVM optional endpoint %s returned an API error: %s",
+                endpoint,
+                err,
+            )
+            return None
+        except aiohttp.ClientResponseError as err:
+            if err.status != 404:
+                raise
+            _LOGGER.debug("NanoKVM endpoint %s is not available on this device", endpoint)
+            return None
+
+    async def _fetch_oled_info(self):
+        """Fetch OLED state, treating NanoKVM Pro's missing OLED file as unavailable."""
+        try:
+            return await self.client.get_oled_info()
+        except NanoKVMApiError as err:
+            if not _is_invalid_file_content_error(err):
+                raise
+            _LOGGER.debug(
+                "NanoKVM endpoint /vm/oled returned %r; treating OLED as unavailable",
+                _INVALID_FILE_CONTENT_MESSAGE,
+            )
+            return None
+
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
         self.device_info = await self.client.get_info()
         self.hostname_info = await self.client.get_hostname()
         self.hardware_info = await self.client.get_hardware()
         self.gpio_info = await self.client.get_gpio()
-        self.virtual_device_info = await self.client.get_virtual_device_status()
+        if self.hardware_info is not None:
+            self.virtual_device_info = await self._fetch_optional(
+                "/vm/device/virtual", self.client.get_virtual_device_status
+            )
+        else:
+            self.virtual_device_info = None
         self.ssh_state = await self.client.get_ssh_state()
         self.mdns_state = await self.client.get_mdns_state()
         self.hid_mode = await self.client.get_hid_mode()
-        self.oled_info = await self.client.get_oled_info()
+        self.oled_info = await self._fetch_oled_info()
         self.wifi_status = await self.client.get_wifi_status()
-        self.hdmi_state = await self.client.get_hdmi_state()
+        if self.supports_hdmi_endpoint:
+            self.hdmi_state = await self._fetch_optional(
+                "/vm/hdmi", self.client.get_hdmi_state
+            )
+        else:
+            self.hdmi_state = None
         self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
-        self.swap_size = await self.client.get_swap_size()
+        if self.supports_swap_size:
+            self.swap_size = await self._fetch_optional(
+                "/vm/swap", self.client.get_swap_size
+            )
+        else:
+            self.swap_size = None
         self.tailscale_status = await self.client.get_tailscale_status()
+        await self._async_fetch_pro_data()
+
+    async def _async_fetch_pro_data(self) -> None:
+        """Fetch optional NanoKVM Pro state used by entities."""
+        if not self.is_pro_hardware:
+            self._clear_pro_data()
+            return
+
+        self.hdmi_capture = await self._fetch_optional(
+            "/vm/hdmi/capture", self.client.get_hdmi_capture
+        )
+        self.hdmi_passthrough = await self._fetch_optional(
+            "/vm/hdmi/passthrough", self.client.get_hdmi_passthrough
+        )
+        self.low_power = await self._fetch_optional(
+            "/vm/low-power", self.client.get_low_power
+        )
+        self.led_strip = await self._fetch_optional(
+            "/vm/ledstrip/get", self.client.get_led_strip
+        )
+        self.lcd_time_format = await self._fetch_optional(
+            "/vm/lcd/time/format", self.client.get_lcd_time_format
+        )
+        self.time_status = await self._fetch_optional(
+            "/vm/time/status", self.client.get_time_status
+        )
+        self.static_ip = await self._fetch_optional(
+            "/network/static-ip", self.client.get_static_ip
+        )
+
+    def _clear_pro_data(self) -> None:
+        """Clear NanoKVM Pro-only state."""
+        self.hdmi_capture = None
+        self.hdmi_passthrough = None
+        self.low_power = None
+        self.led_strip = None
+        self.lcd_time_format = None
+        self.time_status = None
+        self.static_ip = None
 
     def _async_schedule_app_version_refresh(self) -> None:
         """Refresh application version info outside the critical poll path."""
@@ -378,18 +496,29 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug(
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
-                self.mounted_image = GetMountedImageRsp(file="")
-
-            try:
-                self.cdrom_status = await self.client.get_cdrom_status()
-            except NanoKVMApiError as err:
-                _LOGGER.debug(
-                    "Failed to get CD-ROM status, retrieving default value: %s", err
+                self.mounted_image = GetMountedImageRsp(
+                    file="", cdrom=False, read_only=False
                 )
-                self.cdrom_status = GetCdRomRsp(cdrom=0)
+
+            if self.supports_cdrom_endpoint:
+                try:
+                    self.cdrom_status = await self._fetch_optional(
+                        "/storage/cdrom", self.client.get_cdrom_status
+                    )
+                except NanoKVMApiError as err:
+                    _LOGGER.debug(
+                        "Failed to get CD-ROM status, retrieving default value: %s", err
+                    )
+                    self.cdrom_status = GetCdRomRsp(cdrom=0)
+            else:
+                self.cdrom_status = None
         else:
-            self.mounted_image = GetMountedImageRsp(file="")
-            self.cdrom_status = GetCdRomRsp(cdrom=0)
+            self.mounted_image = GetMountedImageRsp(
+                file="", cdrom=False, read_only=False
+            )
+            self.cdrom_status = (
+                GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
+            )
 
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""
@@ -415,6 +544,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             "cdrom_status": self.cdrom_status,
             "mouse_jiggler_state": self.mouse_jiggler_state,
             "hdmi_state": self.hdmi_state,
+            "hdmi_capture": self.hdmi_capture,
+            "hdmi_passthrough": self.hdmi_passthrough,
+            "low_power": self.low_power,
+            "led_strip": self.led_strip,
+            "lcd_time_format": self.lcd_time_format,
+            "time_status": self.time_status,
+            "static_ip": self.static_ip,
             "swap_size": self.swap_size,
             "tailscale_status": self.tailscale_status,
             "hostname_info": self.hostname_info,
@@ -447,6 +583,43 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             )
             return False
 
+    @property
+    def is_pro_hardware(self) -> bool:
+        """Return whether the detected NanoKVM hardware is the Pro model."""
+        return bool(
+            self.hardware_info and self.hardware_info.version == HWVersion.PRO
+        )
+
+    @property
+    def supports_non_pro_virtual_device_controls(self) -> bool:
+        """Return whether non-Pro virtual network/disk controls apply."""
+        return self.hardware_info is not None and not self.is_pro_hardware
+
+    @property
+    def supports_hdmi_endpoint(self) -> bool:
+        """Return whether the non-Pro HDMI endpoint should be queried."""
+        return bool(
+            self.hardware_info and self.hardware_info.version == HWVersion.PCIE
+        )
+
+    @property
+    def supports_swap_size(self) -> bool:
+        """Return whether the non-Pro swap-size endpoint should be queried."""
+        return self.hardware_info is not None and not self.is_pro_hardware
+
+    @property
+    def supports_cdrom_endpoint(self) -> bool:
+        """Return whether the non-Pro CD-ROM endpoint should be queried."""
+        return self.hardware_info is not None and not self.is_pro_hardware
+
+    def _active_network_connection_types(self) -> set[str]:
+        """Return active network connection types reported by the NanoKVM."""
+        return {
+            address.type.casefold()
+            for address in self.device_info.ips
+            if address.addr
+        }
+
     async def async_ensure_ssh_metrics_collector(self) -> SSHMetricsCollector:
         """Return the active SSH collector, creating it when needed."""
         if not self.ssh_metrics_collector:
@@ -465,6 +638,23 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.hass, SIGNAL_NEW_MEDIA_ENTITIES.format(self.config_entry.entry_id)
             )
             self.media_entities_created = True
+
+    def _async_maybe_create_network_entities(self) -> None:
+        """Signal when per-connection network entities should be created."""
+        for connection_type in self._active_network_connection_types():
+            if connection_type in self.network_entities_created:
+                continue
+
+            _LOGGER.debug(
+                "Network connection type %s present, signaling to create entities",
+                connection_type,
+            )
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_NEW_NETWORK_ENTITIES.format(self.config_entry.entry_id),
+                connection_type,
+            )
+            self.network_entities_created.add(connection_type)
 
     async def _async_update_ssh_data(self) -> None:
         """Fetch data via SSH."""

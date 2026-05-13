@@ -14,6 +14,7 @@ from nanokvm.models import GpioType, HWVersion
 
 from .const import (
     DOMAIN,
+    ICON_CLOCK,
     ICON_HID,
     ICON_KVM,
     ICON_POWER,
@@ -37,6 +38,11 @@ def _is_pcie_hardware(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
         coordinator.hardware_info
         and coordinator.hardware_info.version == HWVersion.PCIE
     )
+
+
+def _is_pro_hardware(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
+    """Return whether the device is Pro hardware."""
+    return coordinator.is_pro_hardware
 
 
 BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
@@ -77,6 +83,15 @@ BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
         icon=ICON_HID,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hid(),
+    ),
+    NanoKVMButtonEntityDescription(
+        key="sync_time",
+        name="Sync Time",
+        translation_key="sync_time",
+        icon=ICON_CLOCK,
+        entity_category=EntityCategory.CONFIG,
+        press_fn=lambda coordinator: coordinator.client.sync_time(),
+        available_fn=_is_pro_hardware,
     ),
 )
 
