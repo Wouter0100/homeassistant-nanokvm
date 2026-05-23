@@ -1,9 +1,13 @@
 """Update platform for Sipeed NanoKVM."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+import aiohttp
 
 from homeassistant.components.update import (
     UpdateDeviceClass,
@@ -13,11 +17,16 @@ from homeassistant.components.update import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from nanokvm.client import NanoKVMError
 
 from .const import DOMAIN
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -125,6 +134,22 @@ class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
     ) -> None:
         """Trigger NanoKVM application update."""
         del version, backup, kwargs
-        async with self.coordinator.client:
-            await self.coordinator.client.update_application()
+        should_refresh = True
+        try:
+            async with self.coordinator.client:
+                await self.coordinator.client.update_application()
+        except aiohttp.ServerDisconnectedError:
+            should_refresh = False
+            _LOGGER.debug(
+                "NanoKVM disconnected while starting the application update; "
+                "assuming the update is continuing"
+            )
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Failed to start NanoKVM application update: {err}"
+            ) from err
+
+        if not should_refresh:
+            return
+
         await self.coordinator.async_request_refresh()
