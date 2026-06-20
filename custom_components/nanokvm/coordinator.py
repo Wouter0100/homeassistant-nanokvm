@@ -74,6 +74,11 @@ def _is_invalid_file_content_error(error: NanoKVMApiError) -> bool:
     )
 
 
+def _format_timeout_error(action: str) -> str:
+    """Return a stable timeout message without relying on an empty exception."""
+    return f"Timed out {action} after {_UPDATE_TIMEOUT_SECONDS} seconds"
+
+
 class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching NanoKVM data."""
 
@@ -208,7 +213,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
             raise UpdateFailed(f"Authentication failed: {err}") from err
 
-        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except asyncio.TimeoutError:
+            raise UpdateFailed(
+                _format_timeout_error("communicating with NanoKVM")
+            ) from None
+        except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
     async def _async_fetch_with_client(self) -> dict[str, Any]:
@@ -265,7 +274,15 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             except aiohttp.ClientConnectorError as auth_err:
                 last_error = auth_err
                 continue
-            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
+            except asyncio.TimeoutError:
+                if isinstance(original_error, aiohttp.ClientResponseError):
+                    raise UpdateFailed(
+                        _format_timeout_error("reauthenticating with NanoKVM")
+                    ) from None
+                raise UpdateFailed(
+                    _format_timeout_error("authenticating with NanoKVM")
+                ) from None
+            except (NanoKVMError, aiohttp.ClientError) as auth_err:
                 if isinstance(original_error, aiohttp.ClientResponseError):
                     raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
                 raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
@@ -315,7 +332,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 ) from err
             except aiohttp.ClientConnectorError:
                 continue
-            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            except asyncio.TimeoutError:
+                raise UpdateFailed(
+                    _format_timeout_error("checking alternate NanoKVM API transport")
+                ) from None
+            except (NanoKVMError, aiohttp.ClientError) as err:
                 raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
         _LOGGER.debug(
