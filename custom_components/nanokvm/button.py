@@ -135,6 +135,6 @@ class NanoKVMButton(NanoKVMEntity, ButtonEntity):
         """Press the button."""
         if self.entity_description.press_fn is None:
             raise RuntimeError(f"Missing press handler for button: {self.entity_description.key}")
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.press_fn(self.coordinator)
         await self.coordinator.async_request_refresh()

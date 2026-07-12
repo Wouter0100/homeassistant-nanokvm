@@ -192,11 +192,10 @@ def async_register_services(hass: HomeAssistant) -> None:
     ) -> None:
         """Execute a service on the targeted NanoKVM device."""
         coordinator = _resolve_target_coordinator(call)
-        client = coordinator.client
         host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
 
         try:
-            async with client:
+            async with coordinator.async_client() as client:
                 await handler(coordinator, client, host)
         except HomeAssistantError:
             raise
@@ -217,11 +216,10 @@ def async_register_services(hass: HomeAssistant) -> None:
     ) -> ServiceResponse:
         """Execute a response-returning service on the targeted NanoKVM device."""
         coordinator = _resolve_target_coordinator(call)
-        client = coordinator.client
         host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
 
         try:
-            async with client:
+            async with coordinator.async_client() as client:
                 return _model_to_response(await handler(coordinator, client, host))
         except HomeAssistantError:
             raise
