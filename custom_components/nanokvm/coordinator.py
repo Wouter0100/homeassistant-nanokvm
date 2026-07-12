@@ -82,6 +82,8 @@ def _format_timeout_error(action: str) -> str:
 class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching NanoKVM data."""
 
+    config_entry: ConfigEntry
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -92,7 +94,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         device_info: GetInfoRsp,
     ) -> None:
         """Initialize the coordinator."""
-        self.config_entry = config_entry
         self.client = client
         self.username = username
         self.password = password
@@ -138,6 +139,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
@@ -726,12 +728,16 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Release any background tasks and live connections owned by the coordinator."""
-        if self._app_version_fetch_task is not None:
-            self._app_version_fetch_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._app_version_fetch_task
-            self._app_version_fetch_task = None
-
-        if self.ssh_metrics_collector:
-            await self.ssh_metrics_collector.disconnect()
-            self.ssh_metrics_collector = None
+        try:
+            await super().async_shutdown()
+        finally:
+            try:
+                if self._app_version_fetch_task is not None:
+                    self._app_version_fetch_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._app_version_fetch_task
+                    self._app_version_fetch_task = None
+            finally:
+                if self.ssh_metrics_collector:
+                    await self.ssh_metrics_collector.disconnect()
+                    self.ssh_metrics_collector = None

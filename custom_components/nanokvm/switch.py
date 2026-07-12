@@ -413,10 +413,20 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
 class NanoKVMPowerSwitch(NanoKVMSwitch):
     """Defines a NanoKVM power switch with special shutdown behavior."""
 
+    async def _async_current_power_state(self) -> bool | None:
+        """Refresh and return the current power state when available."""
+        await self.coordinator.async_request_refresh()
+        if self.coordinator.gpio_info is None:
+            return None
+        return bool(self.coordinator.gpio_info.pwr)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
+        del kwargs
         if self.entity_description.turn_on_fn is None:
             raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
+        if await self._async_current_power_state() is True:
+            return
         async with self.coordinator.client:
             await self.entity_description.turn_on_fn(self.coordinator)
         await asyncio.sleep(1)
@@ -424,8 +434,11 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off the power switch with monitoring for actual shutdown."""
+        del kwargs
         if self.entity_description.turn_off_fn is None:
             raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
+        if await self._async_current_power_state() is False:
+            return
         async with self.coordinator.client:
             await self.entity_description.turn_off_fn(self.coordinator)
 
