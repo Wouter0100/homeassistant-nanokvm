@@ -397,7 +397,7 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
         """Turn on the switch."""
         if self.entity_description.turn_on_fn is None:
             raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.turn_on_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
@@ -405,7 +405,7 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
         """Turn off the switch."""
         if self.entity_description.turn_off_fn is None:
             raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.turn_off_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
@@ -427,7 +427,7 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
             raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
         if await self._async_current_power_state() is True:
             return
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.turn_on_fn(self.coordinator)
         await asyncio.sleep(1)
         await self.coordinator.async_request_refresh()
@@ -439,7 +439,7 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
             raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
         if await self._async_current_power_state() is False:
             return
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.turn_off_fn(self.coordinator)
 
         SHUTDOWN_TIMEOUT = 300
@@ -472,8 +472,8 @@ class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
         if self.is_on == enabled:
             return
 
-        async with self.coordinator.client:
-            await self.coordinator.client.update_virtual_device(virtual_device)
+        async with self.coordinator.async_client() as client:
+            await client.update_virtual_device(virtual_device)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self, **kwargs: Any) -> None:

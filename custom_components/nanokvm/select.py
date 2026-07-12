@@ -342,6 +342,6 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
         """Change the selected option."""
         if self.entity_description.select_option_fn is None:
             raise RuntimeError(f"Missing select handler for select: {self.entity_description.key}")
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.select_option_fn(self.coordinator, option)
         await self.coordinator.async_request_refresh()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 import contextlib
 import datetime
 import logging
@@ -135,6 +136,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.watchdog_enabled = None
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
+        self._client_lock = asyncio.Lock()
 
         super().__init__(
             hass,
@@ -143,6 +145,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
+
+    @contextlib.asynccontextmanager
+    async def async_client(self) -> AsyncIterator[NanoKVMClient]:
+        """Yield the shared API client to one caller at a time."""
+        async with self._client_lock:
+            async with self.client as client:
+                yield client
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
@@ -224,20 +233,29 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_with_client(self) -> dict[str, Any]:
         """Fetch data using the current client instance."""
-        async with self.client, asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
-            if not self.client.token:
-                await self.client.authenticate(self.username, self.password)
+        async with self.async_client() as client:
+            async with asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
+                if not client.token:
+                    await client.authenticate(self.username, self.password)
 
-            await self._async_fetch_core_data()
-            self._async_maybe_create_network_entities()
-            await self._async_fetch_storage_data()
-            self._async_maybe_create_media_entities()
-            await self._async_refresh_ssh_data()
-            self._async_schedule_app_version_refresh()
-            return self._build_update_data()
+                await self._async_fetch_core_data()
+                self._async_maybe_create_network_entities()
+                await self._async_fetch_storage_data()
+                self._async_maybe_create_media_entities()
+
+        await self._async_refresh_ssh_data()
+        self._async_schedule_app_version_refresh()
+        return self._build_update_data()
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""
+        async with self._client_lock:
+            await self._async_reauthenticate_client_locked(original_error)
+
+    async def _async_reauthenticate_client_locked(
+        self, original_error: Exception
+    ) -> None:
+        """Reauthenticate and replace the client while access is serialized."""
         options = api_connection_options(
             self.config_entry.data[CONF_HOST],
             self.config_entry.data.get(CONF_SSL_FINGERPRINT),
@@ -297,6 +315,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_failover_client(self, original_error: Exception) -> bool:
         """Switch to an alternate API transport after a connection failure."""
+        async with self._client_lock:
+            return await self._async_failover_client_locked(original_error)
+
+    async def _async_failover_client_locked(self, original_error: Exception) -> bool:
+        """Switch transports while access to the shared client is serialized."""
         options = api_connection_options(
             self.config_entry.data[CONF_HOST],
             self.config_entry.data.get(CONF_SSL_FINGERPRINT),

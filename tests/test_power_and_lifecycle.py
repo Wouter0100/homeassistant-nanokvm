@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.config_entries import ConfigEntry
+from nanokvm.models import GpioType
+from pytest import MonkeyPatch
 
 from custom_components.nanokvm import async_unload_entry
 from custom_components.nanokvm.const import DOMAIN
@@ -16,6 +19,7 @@ from custom_components.nanokvm.switch import (
     NanoKVMPowerSwitch,
     NanoKVMSwitchEntityDescription,
 )
+import custom_components.nanokvm.switch as switch_module
 
 
 class FakeClient:
@@ -26,9 +30,8 @@ class FakeClient:
         self.push_button = AsyncMock()
 
     async def __aenter__(self) -> FakeClient:
-        """Enter the fake client context."""
-        self.enter_count += 1
-        return self
+        """Reject entity code that enters the shared client directly."""
+        raise AssertionError("power switch bypassed coordinator client access")
 
     async def __aexit__(self, *_: object) -> None:
         """Exit the fake client context."""
@@ -41,9 +44,17 @@ def _power_description() -> NanoKVMSwitchEntityDescription:
 
 def _power_switch(power_state: bool) -> tuple[NanoKVMPowerSwitch, SimpleNamespace]:
     """Create a power switch backed by a minimal coordinator."""
+    client = FakeClient()
+
+    @contextlib.asynccontextmanager
+    async def async_client():
+        client.enter_count += 1
+        yield client
+
     coordinator = SimpleNamespace(
+        async_client=MagicMock(side_effect=async_client),
         async_request_refresh=AsyncMock(),
-        client=FakeClient(),
+        client=client,
         device_info=SimpleNamespace(device_key="test-device"),
         gpio_info=SimpleNamespace(pwr=power_state),
     )
@@ -70,6 +81,22 @@ def test_power_turn_off_is_noop_when_already_off() -> None:
     coordinator.async_request_refresh.assert_awaited_once_with()
     assert coordinator.client.enter_count == 0
     coordinator.client.push_button.assert_not_awaited()
+
+
+def test_power_turn_on_uses_coordinator_client_access(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A power action must use serialized coordinator client access."""
+    switch, coordinator = _power_switch(False)
+    sleep = AsyncMock()
+    monkeypatch.setattr(switch_module.asyncio, "sleep", sleep)
+
+    asyncio.run(switch.async_turn_on())
+
+    coordinator.async_client.assert_called_once_with()
+    coordinator.client.push_button.assert_awaited_once_with(GpioType.POWER, 200)
+    assert coordinator.client.enter_count == 1
+    sleep.assert_awaited_once_with(1)
 
 
 def _coordinator() -> tuple[NanoKVMDataUpdateCoordinator, MagicMock]:

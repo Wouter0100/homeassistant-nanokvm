@@ -136,8 +136,8 @@ class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
         del version, backup, kwargs
         should_refresh = True
         try:
-            async with self.coordinator.client:
-                await self.coordinator.client.update_application()
+            async with self.coordinator.async_client() as client:
+                await client.update_application()
         except aiohttp.ServerDisconnectedError:
             should_refresh = False
             _LOGGER.debug(
