@@ -76,7 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryAuthFailed(
                 f"SSL certificate changed for NanoKVM at {host}"
             ) from err
-        except aiohttp.ClientConnectorError as err:
+        except aiohttp.ClientConnectionError as err:
             last_error = err
             if index < len(options) - 1:
                 continue

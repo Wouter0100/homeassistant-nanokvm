@@ -55,7 +55,7 @@ async def validate_input(data: dict[str, Any]) -> str:
                     last_error = err
                     continue
                 raise SSLCertificateChanged from err
-            except aiohttp.ClientConnectorError as err:
+            except aiohttp.ClientConnectionError as err:
                 last_error = err
                 if index < len(options) - 1:
                     continue

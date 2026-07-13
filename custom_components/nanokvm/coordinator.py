@@ -203,7 +203,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
-        except aiohttp.ClientConnectorError as err:
+        except aiohttp.ClientConnectionError as err:
             if await self._async_failover_client(err):
                 return await self._async_fetch_with_client()
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
@@ -296,7 +296,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 raise ConfigEntryAuthFailed(
                     "SSL certificate changed for NanoKVM"
                 ) from auth_err
-            except aiohttp.ClientConnectorError as auth_err:
+            except aiohttp.ClientConnectionError as auth_err:
                 last_error = auth_err
                 continue
             except asyncio.TimeoutError:
