@@ -143,24 +143,29 @@ Each platform follows a similar pattern:
 
 Run these checks locally before pushing:
 
-1. Python checks:
+1. Automated tests with branch coverage:
+   - `python -m coverage erase`
+   - `python -m coverage run -m pytest -q`
+   - `python -m coverage report`
+2. Python checks:
    - `python -m ruff check custom_components/nanokvm`
    - `python -m py_compile custom_components/nanokvm/*.py`
-2. Validate JSON metadata, strings, and translations:
+3. Validate JSON metadata, strings, and translations:
    - `python -m json.tool hacs.json`
    - `python -m json.tool custom_components/nanokvm/manifest.json`
    - `python -m json.tool custom_components/nanokvm/strings.json`
    - `python -m json.tool custom_components/nanokvm/translations/en.json`
    - `python -m json.tool custom_components/nanokvm/translations/fr.json`
    - `python -m json.tool custom_components/nanokvm/translations/pt-BR.json`
-3. Verify the integration against a Home Assistant test instance and inspect logs.
+4. Verify the integration against a Home Assistant test instance and inspect logs.
 
 ## Required GitHub Workflows
 
+- Tests: `.github/workflows/tests.yaml`
 - HACS: `.github/workflows/hacs.yaml`
 - Hassfest: `.github/workflows/hassfest.yaml`
 
-Both should be green on the PR branch before merge/release.
+All three should be green on the PR branch before merge/release.
 
 [ha-url]: https://www.home-assistant.io/
 [nanokvm-url]: https://github.com/sipeed/NanoKVM

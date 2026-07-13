@@ -40,6 +40,8 @@ python -m coverage run -m pytest
 python -m coverage report
 ```
 
+The coverage report enforces the repository's 98% combined line/branch floor.
+
 Then run the integration validation checks:
 
 1. `python -m ruff check custom_components/nanokvm`
@@ -55,6 +57,7 @@ When behavior changes, also test the integration on a Home Assistant instance.
 
 CI must pass on the PR branch:
 
+- `.github/workflows/tests.yaml`
 - `.github/workflows/hacs.yaml`
 - `.github/workflows/hassfest.yaml`
 
