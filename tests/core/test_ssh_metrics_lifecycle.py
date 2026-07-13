@@ -38,9 +38,11 @@ def test_stalled_ssh_metrics_do_not_block_coordinator_refresh(
     async def run_test() -> None:
         coordinator = _coordinator()
         stalled = asyncio.Event()
+        collect_started = asyncio.Event()
 
         async def collect(*, include_watchdog: bool) -> None:
             del include_watchdog
+            collect_started.set()
             await stalled.wait()
 
         collector = SimpleNamespace(
@@ -58,6 +60,7 @@ def test_stalled_ssh_metrics_do_not_block_coordinator_refresh(
 
         await asyncio.wait_for(coordinator._async_refresh_ssh_data(), timeout=0.2)
 
+        assert collect_started.is_set()
         assert coordinator.uptime is None
         assert coordinator.cpu_temperature is None
         collector.disconnect.assert_awaited_once_with()

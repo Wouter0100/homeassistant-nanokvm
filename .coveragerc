@@ -1,0 +1,7 @@
+[run]
+branch = True
+source = custom_components.nanokvm
+
+[report]
+show_missing = True
+skip_empty = True
