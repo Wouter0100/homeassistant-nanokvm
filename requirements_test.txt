@@ -3,4 +3,5 @@ homeassistant==2026.5.1
 nanokvm==1.2.0
 pytest>=9.0,<10.0
 pytest-asyncio>=1.4,<2.0
+PyTurboJPEG==1.8.3
 ruff>=0.15,<1.0
