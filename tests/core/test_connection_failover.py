@@ -82,13 +82,16 @@ def test_config_validation_disconnect_tries_https(
 
         monkeypatch.setattr(config_flow_module, "NanoKVMClient", FakeClient)
 
-        assert await config_flow_module.validate_input(
-            {
-                CONF_HOST: "nanokvm.local",
-                CONF_USERNAME: "admin",
-                CONF_PASSWORD: "password",
-            }
-        ) == "https-device"
+        assert (
+            await config_flow_module.validate_input(
+                {
+                    CONF_HOST: "nanokvm.local",
+                    CONF_USERNAME: "admin",
+                    CONF_PASSWORD: "password",
+                }
+            )
+            == "https-device"
+        )
         assert [URL(url).scheme for url in attempted_urls] == ["http", "https"]
 
     asyncio.run(run_test())
