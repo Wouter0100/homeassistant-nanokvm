@@ -52,6 +52,7 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_SSH_METRICS_TIMEOUT_SECONDS = 15
 _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
@@ -202,7 +203,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
-        except aiohttp.ClientConnectorError as err:
+        except aiohttp.ClientConnectionError as err:
             if await self._async_failover_client(err):
                 return await self._async_fetch_with_client()
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
@@ -211,6 +212,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._async_reauthenticate_client(err)
                 try:
                     return await self._async_fetch_with_client()
+                except asyncio.TimeoutError:
+                    raise UpdateFailed(
+                        _format_timeout_error("communicating with NanoKVM")
+                    ) from None
                 except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as reauth_err:
                     if _is_auth_failure(reauth_err):
                         raise ConfigEntryAuthFailed(
@@ -291,7 +296,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 raise ConfigEntryAuthFailed(
                     "SSL certificate changed for NanoKVM"
                 ) from auth_err
-            except aiohttp.ClientConnectorError as auth_err:
+            except aiohttp.ClientConnectionError as auth_err:
                 last_error = auth_err
                 continue
             except asyncio.TimeoutError:
@@ -569,7 +574,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""
         if self.ssh_state and self.ssh_state.enabled:
-            await self._async_update_ssh_data()
+            try:
+                async with asyncio.timeout(_SSH_METRICS_TIMEOUT_SECONDS):
+                    await self._async_update_ssh_data()
+            except TimeoutError:
+                _LOGGER.debug(
+                    "Timed out fetching optional SSH metrics after %s seconds",
+                    _SSH_METRICS_TIMEOUT_SECONDS,
+                )
+                await self._async_clear_ssh_data()
+            except asyncio.CancelledError:
+                await self._async_clear_ssh_data()
+                raise
         else:
             await self._async_clear_ssh_data()
 
