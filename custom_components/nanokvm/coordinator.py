@@ -212,6 +212,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._async_reauthenticate_client(err)
                 try:
                     return await self._async_fetch_with_client()
+                except asyncio.TimeoutError:
+                    raise UpdateFailed(
+                        _format_timeout_error("communicating with NanoKVM")
+                    ) from None
                 except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as reauth_err:
                     if _is_auth_failure(reauth_err):
                         raise ConfigEntryAuthFailed(
