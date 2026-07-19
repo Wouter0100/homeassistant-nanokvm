@@ -204,3 +204,45 @@ list_custom_edids:
       description: Optional target host. Required when multiple NanoKVM devices are configured.
       selector:
         text:
+
+start_hdmi_recording:
+  name: Start HDMI Recording
+  description: >-
+    Record a NanoKVM HDMI stream to an MP4 file on Home Assistant. NanoKVM Pro
+    requires H.264 WebRTC video mode.
+  target:
+    entity:
+      integration: nanokvm
+      domain: camera
+  fields:
+    filename:
+      name: Filename
+      description: MP4 output path in a Home Assistant allowed directory.
+      required: true
+      example: "/config/www/nanokvm-capture.mp4"
+      selector:
+        text:
+    duration:
+      name: Duration
+      description: Maximum recording duration in seconds.
+      default: 3600
+      selector:
+        number:
+          min: 1
+          max: 7200
+          unit_of_measurement: s
+          mode: box
+    include_audio:
+      name: Include Audio
+      description: Include the HDMI audio track; available only on NanoKVM Pro.
+      default: false
+      selector:
+        boolean:
+
+stop_hdmi_recording:
+  name: Stop HDMI Recording
+  description: Stop and finalize the active HDMI recording for a NanoKVM camera.
+  target:
+    entity:
+      integration: nanokvm
+      domain: camera

@@ -478,6 +478,28 @@
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
         }
       }
+    },
+    "start_hdmi_recording": {
+      "name": "Iniciar Gravação HDMI",
+      "description": "Grava o stream HDMI de um NanoKVM em um arquivo MP4 no Home Assistant. O NanoKVM Pro requer o modo de vídeo WebRTC H.264.",
+      "fields": {
+        "filename": {
+          "name": "Nome do Arquivo",
+          "description": "Caminho de saída MP4 em um diretório permitido pelo Home Assistant."
+        },
+        "duration": {
+          "name": "Duração",
+          "description": "Duração máxima da gravação em segundos."
+        },
+        "include_audio": {
+          "name": "Incluir Áudio",
+          "description": "Inclui a faixa de áudio HDMI; disponível apenas no NanoKVM Pro."
+        }
+      }
+    },
+    "stop_hdmi_recording": {
+      "name": "Parar Gravação HDMI",
+      "description": "Para e finaliza a gravação HDMI ativa de uma câmera NanoKVM."
     }
   }
 }
