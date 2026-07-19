@@ -23,7 +23,7 @@ from nanokvm.client import NanoKVMClient
 from webrtc_models import RTCIceCandidateInit
 from yarl import URL
 
-from .camera_webrtc_sdp import (
+from .pro_sdp import (
     MediaKind,
     ProWebRTCOffer,
     merge_pro_webrtc_answers,
@@ -73,6 +73,7 @@ class _WebSocketTimeoutKwargs(TypedDict, total=False):
 
 StreamClientFactory = Callable[[], NanoKVMClient | None]
 AuthenticateClientCallable = Callable[[NanoKVMClient], Awaitable[None]]
+SessionStateCallback = Callable[[bool], None]
 
 
 class NanoKVMWebRTCManager:
@@ -86,6 +87,7 @@ class NanoKVMWebRTCManager:
         client_factory: StreamClientFactory,
         authenticate_client: AuthenticateClientCallable,
         is_pro_hardware: Callable[[], bool] | None = None,
+        session_state_callback: SessionStateCallback | None = None,
         login_timeout_seconds: int = 15,
         websocket_heartbeat_seconds: float = 30.0,
         signaling_heartbeat_seconds: float = 60.0,
@@ -97,6 +99,7 @@ class NanoKVMWebRTCManager:
         self._client_factory = client_factory
         self._authenticate_client = authenticate_client
         self._is_pro_hardware = is_pro_hardware or (lambda: False)
+        self._session_state_callback = session_state_callback
         self._login_timeout_seconds = login_timeout_seconds
         self._websocket_heartbeat_seconds = websocket_heartbeat_seconds
         self._signaling_heartbeat_seconds = signaling_heartbeat_seconds
@@ -104,6 +107,18 @@ class NanoKVMWebRTCManager:
         self._sessions: dict[str, _NanoKVMWebRTCSession] = {}
         self._pending_candidates: dict[str, list[RTCIceCandidateInit]] = {}
         self._session_lock = asyncio.Lock()
+
+    def _notify_session_state(self, streaming: bool) -> None:
+        """Notify the camera when the active-session state changes."""
+        if self._session_state_callback is None:
+            return
+        try:
+            self._session_state_callback(streaming)
+        except Exception:
+            self._logger.exception(
+                "Error publishing NanoKVM WebRTC session state: streaming=%s",
+                streaming,
+            )
 
     def _webrtc_stream_url(self, base_url: URL, *, pro: bool) -> str:
         """Build NanoKVM h264 WebRTC websocket URL from API base URL."""
@@ -139,9 +154,6 @@ class NanoKVMWebRTCManager:
 
         registered = False
 
-        if is_pro:
-            await self._async_close_other_webrtc_sessions(session_id)
-
         async with self._session_lock:
             self._pending_candidates.setdefault(session_id, [])
 
@@ -168,8 +180,11 @@ class NanoKVMWebRTCManager:
                 pro_offer=pro_offer,
             )
             async with self._session_lock:
+                first_session = not self._sessions
                 self._sessions[session_id] = webrtc_session
                 registered = True
+            if first_session:
+                self._notify_session_state(True)
 
             webrtc_session.reader_task = hass.async_create_task(
                 self._async_webrtc_reader(session_id, send_message)
@@ -628,9 +643,13 @@ class NanoKVMWebRTCManager:
         async with self._session_lock:
             session = self._sessions.pop(session_id, None)
             self._pending_candidates.pop(session_id, None)
+            last_session = session is not None and not self._sessions
 
         if session is None:
             return
+
+        if last_session:
+            self._notify_session_state(False)
 
         current_task = asyncio.current_task()
 
@@ -660,24 +679,6 @@ class NanoKVMWebRTCManager:
         if hass is None:
             return
         hass.async_create_task(self._async_close_webrtc_session(session_id))
-
-    async def _async_close_other_webrtc_sessions(self, session_id: str) -> None:
-        """Close existing sessions before starting a Pro WebRTC stream."""
-        async with self._session_lock:
-            session_ids = [
-                existing_session_id
-                for existing_session_id in self._sessions
-                if existing_session_id != session_id
-            ]
-
-        for existing_session_id in session_ids:
-            self._logger.debug(
-                "Closing existing NanoKVM WebRTC session before starting Pro session: "
-                "old_session_id=%s new_session_id=%s",
-                existing_session_id,
-                session_id,
-            )
-            await self._async_close_webrtc_session(existing_session_id)
 
     async def async_shutdown(self) -> None:
         """Close all active WebRTC sessions."""

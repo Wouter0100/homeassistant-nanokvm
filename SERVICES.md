@@ -247,3 +247,53 @@ data:
   host: "192.168.1.50"
 response_variable: custom_edids
 ```
+
+## `nanokvm.start_hdmi_recording`
+
+Record the selected NanoKVM HDMI stream to an MP4 file on Home Assistant.
+The call returns after the first video frame is being written. Only one recording
+can run per NanoKVM device. The **HDMI Recording** switch uses the same recorder,
+creates `/media/nanokvm/<device-key>/YYYYMMDDHHMMSS.mp4`, records video only,
+and stops automatically after 30 minutes.
+
+Parameters:
+
+- target: exactly one NanoKVM camera entity (required)
+- `filename`: `.mp4` path inside a Home Assistant allowed directory (required)
+- `duration`: maximum duration from `1` to `7200` seconds (optional, default `3600`)
+- `include_audio`: include HDMI audio (optional, default `false`; only NanoKVM Pro supports audio and it uses the higher-overhead WebRTC recorder)
+
+Example:
+
+```yaml
+service: nanokvm.start_hdmi_recording
+target:
+  entity_id: camera.nanokvm_hdmi_stream
+data:
+  filename: "/config/www/nanokvm-capture.mp4"
+  duration: 60
+  include_audio: false
+```
+
+The recording is written to an extension-preserving temporary file and then
+atomically moved to `filename`. A runtime failure after capture begins preserves
+a non-empty partial MP4. Non-Pro video-only recording uses NanoKVM's direct
+timestamped H.264 stream and avoids re-encoding. NanoKVM Pro uses the WebRTC
+recorder for video-only and audio recordings so existing WebRTC viewers remain
+active; this can noticeably increase Home Assistant CPU and memory usage.
+
+NanoKVM Pro recording works only when the official WebUI video mode is set to
+**H.264 WebRTC**. Concurrent WebRTC viewers are supported, but changing the
+official WebUI to MJPEG, H.264 Direct, or H.265 mode during a recording stops
+the WebRTC pipeline and finalizes the captured portion.
+
+## `nanokvm.stop_hdmi_recording`
+
+Stop and finalize the active recording early. Calling this service when the
+camera is not recording is safe.
+
+```yaml
+service: nanokvm.stop_hdmi_recording
+target:
+  entity_id: camera.nanokvm_hdmi_stream
+```

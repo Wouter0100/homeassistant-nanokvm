@@ -15,6 +15,7 @@ from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVME
 
 from .const import CONF_SSL_FINGERPRINT, CONF_USE_STATIC_HOST, DOMAIN
 from .coordinator import NanoKVMDataUpdateCoordinator
+from .media.runtime import NanoKVMMediaRuntime
 from .services import async_register_services, async_unregister_services
 from .utils import api_connection_options
 
@@ -101,6 +102,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await coordinator.async_config_entry_first_refresh()
+    coordinator.media = NanoKVMMediaRuntime(coordinator, logger=_LOGGER)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator

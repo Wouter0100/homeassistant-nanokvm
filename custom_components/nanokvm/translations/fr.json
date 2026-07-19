@@ -209,6 +209,17 @@
       },
       "watchdog": {
         "name": "Watchdog"
+      },
+      "hdmi_recording": {
+        "name": "Enregistrement HDMI",
+        "state_attributes": {
+          "filename": {
+            "name": "Nom du fichier"
+          },
+          "maximum_duration_minutes": {
+            "name": "Durée maximale"
+          }
+        }
       }
     },
     "select": {
@@ -478,6 +489,28 @@
           "description": "Hôte cible facultatif. Obligatoire lorsque plusieurs appareils NanoKVM sont configurés."
         }
       }
+    },
+    "start_hdmi_recording": {
+      "name": "Démarrer l'enregistrement HDMI",
+      "description": "Enregistrer le flux HDMI d'un NanoKVM dans un fichier MP4 sur Home Assistant. Le NanoKVM Pro nécessite le mode vidéo WebRTC H.264.",
+      "fields": {
+        "filename": {
+          "name": "Nom du fichier",
+          "description": "Chemin de sortie MP4 dans un répertoire autorisé par Home Assistant."
+        },
+        "duration": {
+          "name": "Durée",
+          "description": "Durée maximale de l'enregistrement en secondes."
+        },
+        "include_audio": {
+          "name": "Inclure l'audio",
+          "description": "Inclure la piste audio HDMI ; disponible uniquement sur NanoKVM Pro."
+        }
+      }
+    },
+    "stop_hdmi_recording": {
+      "name": "Arrêter l'enregistrement HDMI",
+      "description": "Arrêter et finaliser l'enregistrement HDMI actif d'une caméra NanoKVM."
     }
   }
 }

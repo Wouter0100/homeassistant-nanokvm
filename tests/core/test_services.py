@@ -144,14 +144,22 @@ def _capture_registered_services(hass: MagicMock) -> dict[str, RegisteredService
 
     registered: dict[str, RegisteredService] = {}
     for registration in registry.async_register.call_args_list:
-        domain, service_name, handler = registration.args
+        domain, service_name, handler = registration.args[:3]
         assert domain == DOMAIN
+        schema = (
+            registration.args[3]
+            if len(registration.args) > 3
+            else registration.kwargs["schema"]
+        )
+        supports_response = (
+            registration.args[4]
+            if len(registration.args) > 4
+            else registration.kwargs.get("supports_response", SupportsResponse.NONE)
+        )
         registered[service_name] = RegisteredService(
             handler=handler,
-            schema=registration.kwargs["schema"],
-            supports_response=registration.kwargs.get(
-                "supports_response", SupportsResponse.NONE
-            ),
+            schema=schema,
+            supports_response=supports_response,
         )
     return registered
 

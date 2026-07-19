@@ -69,6 +69,9 @@ Notes:
 - Host updates from discovery are disabled when **Use static host only** is enabled.
 - Camera stream availability depends on HDMI input/source status.
 - NanoKVM Pro still snapshots are skipped to avoid interrupting WebRTC video mode.
+- NanoKVM Pro recording works only while the official WebUI video mode is set
+  to **H.264 WebRTC**. Concurrent WebRTC viewers can remain active, but changing
+  the WebUI to MJPEG, H.264 Direct, or H.265 mode stops the recording pipeline.
 - Feature-specific entities only appear when the device reports support for them.
 
 ## Entities
@@ -81,7 +84,7 @@ Notes:
 | Number | Pro LED brightness, horizontal beads, vertical beads |
 | Select | HID mode, Mouse Jiggler, OLED timeout, Swap size, Pro LCD time format, Pro virtual disk type |
 | Sensor | IP address, wired/wireless IP address, mounted image, Tailscale, SSH diagnostics |
-| Switch | Power, SSH, mDNS, virtual network/disk, HDMI output, watchdog, Pro HDMI capture/passthrough, Pro low power, Pro LED strip, Pro virtual mic |
+| Switch | Timestamped HDMI recording (30-minute limit), power, SSH, mDNS, virtual network/disk, HDMI output, watchdog, Pro HDMI capture/passthrough, Pro low power, Pro LED strip, Pro virtual mic |
 | Update | Application version and install action |
 
 Notes:
@@ -141,6 +144,8 @@ For full call examples, see [`SERVICES.md`](SERVICES.md).
 | `is_image_download_enabled` | `host` | Return whether image downloading is enabled |
 | `get_image_download_status` | `host` | Return image download status |
 | `list_custom_edids` | `host` | Return custom EDIDs available on NanoKVM Pro |
+| `start_hdmi_recording` | camera target, `filename`, `duration`, `include_audio` | Record NanoKVM HDMI to an MP4 file |
+| `stop_hdmi_recording` | camera target | Stop and finalize the active HDMI recording |
 
 Notes:
 
@@ -148,6 +153,10 @@ Notes:
 - `set_led_strip.brightness` range is `0-100`; LED beads must satisfy `horizontal + (2 * vertical) <= 150`.
 - `host` is optional when one NanoKVM is configured and required when multiple devices are configured.
 - Response services return structured data to callers that request a response.
+- The **HDMI Recording** switch creates a video-only file named with the local
+  timestamp under `/media/nanokvm/<device-key>/` and stops automatically after
+  30 minutes. Turning it off finalizes the file early.
+- Video-only HDMI recording uses the direct timestamped H.264 stream on non-Pro devices, including PCIe. NanoKVM Pro uses the higher-overhead WebRTC recorder for both video-only and audio recordings so existing WebRTC viewers can remain active. Pro recording requires the official WebUI to remain in **H.264 WebRTC** mode. The manual service output path must use `.mp4` and be inside a Home Assistant allowed directory; HDMI audio remains limited to NanoKVM Pro.
 
 ## Example Automation
 

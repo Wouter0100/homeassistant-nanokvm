@@ -89,6 +89,17 @@
       },
       "virtual_mic": {
         "name": "Virtual Microphone"
+      },
+      "hdmi_recording": {
+        "name": "HDMI Recording",
+        "state_attributes": {
+          "filename": {
+            "name": "Filename"
+          },
+          "maximum_duration_minutes": {
+            "name": "Maximum duration"
+          }
+        }
       }
     },
     "select": {
@@ -200,6 +211,28 @@
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
         }
       }
+    },
+    "start_hdmi_recording": {
+      "name": "Start HDMI Recording",
+      "description": "Record a NanoKVM HDMI stream to an MP4 file on Home Assistant. NanoKVM Pro requires H.264 WebRTC video mode.",
+      "fields": {
+        "filename": {
+          "name": "Filename",
+          "description": "MP4 output path in a Home Assistant allowed directory."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Maximum recording duration in seconds."
+        },
+        "include_audio": {
+          "name": "Include Audio",
+          "description": "Include the HDMI audio track; available only on NanoKVM Pro."
+        }
+      }
+    },
+    "stop_hdmi_recording": {
+      "name": "Stop HDMI Recording",
+      "description": "Stop and finalize the active HDMI recording for a NanoKVM camera."
     }
   }
 }

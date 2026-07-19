@@ -29,6 +29,8 @@ SERVICE_IMAGE_DOWNLOAD_ENABLED = "is_image_download_enabled"
 SERVICE_GET_IMAGE_DOWNLOAD_STATUS = "get_image_download_status"
 SERVICE_LIST_CUSTOM_EDIDS = "list_custom_edids"
 SERVICE_SET_LED_STRIP = "set_led_strip"
+SERVICE_START_HDMI_RECORDING = "start_hdmi_recording"
+SERVICE_STOP_HDMI_RECORDING = "stop_hdmi_recording"
 
 # Service attributes
 ATTR_BUTTON_TYPE = "button_type"
@@ -41,6 +43,8 @@ ATTR_ON = "on"
 ATTR_BRIGHTNESS = "brightness"
 ATTR_HORIZONTAL_COUNT = "horizontal_count"
 ATTR_VERTICAL_COUNT = "vertical_count"
+ATTR_FILENAME = "filename"
+ATTR_INCLUDE_AUDIO = "include_audio"
 
 # Button types
 BUTTON_TYPE_POWER = "power"

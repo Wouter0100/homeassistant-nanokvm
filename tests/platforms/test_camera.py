@@ -13,12 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.components.camera import CameraEntityFeature, CameraState
 from homeassistant.components.camera.const import StreamType
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 from webrtc_models import RTCIceCandidateInit
 from yarl import URL
 
 import custom_components.nanokvm.camera as camera_module
-from custom_components.nanokvm.const import CONF_SSL_FINGERPRINT, DOMAIN
+from custom_components.nanokvm.const import DOMAIN
 
 
 def _coordinator(**overrides: object) -> SimpleNamespace:
@@ -55,8 +56,24 @@ def _camera(
     manager_factory = MagicMock(return_value=manager)
     monkeypatch.setattr(camera_module, "NanoKVMWebRTCManager", manager_factory)
 
+    active_coordinator = coordinator or _coordinator()
+    if getattr(active_coordinator, "media", None) is None:
+        provider = SimpleNamespace(
+            create_client=MagicMock(return_value=None),
+            async_authenticate=AsyncMock(),
+        )
+        recorder = MagicMock()
+        recorder.is_recording = False
+        recorder.async_start = AsyncMock()
+        recorder.async_stop = AsyncMock()
+        recorder.async_add_state_listener.return_value = MagicMock()
+        active_coordinator.media = SimpleNamespace(
+            client_provider=provider,
+            recording=recorder,
+        )
+
     entity = camera_module.NanoKVMCamera(
-        coordinator or _coordinator(), camera_module.CAMERAS[0]
+        active_coordinator, camera_module.CAMERAS[0]
     )
     return entity, manager, manager_factory
 
@@ -65,6 +82,12 @@ def test_camera_description_inventory_and_default_availability() -> None:
     """The platform exposes one always-created HDMI stream description."""
     assert [description.key for description in camera_module.CAMERAS] == ["hdmi"]
     assert camera_module.CAMERAS[0].available_fn(_coordinator()) is True
+
+
+def test_camera_requires_entry_scoped_media_runtime() -> None:
+    """Platform setup fails explicitly if integration media ownership is missing."""
+    with pytest.raises(RuntimeError, match="media runtime is not initialized"):
+        camera_module.NanoKVMCamera(_coordinator(media=None), camera_module.CAMERAS[0])
 
 
 @pytest.mark.asyncio
@@ -114,8 +137,8 @@ async def test_camera_initializes_native_webrtc_stream(
 
     assert entity.unique_id == "test-device_camera_hdmi"
     assert entity.supported_features == CameraEntityFeature.STREAM
-    assert entity.is_streaming is True
-    assert entity.state == CameraState.STREAMING
+    assert entity.is_streaming is False
+    assert entity.state == CameraState.IDLE
     assert entity.available is True
     coordinator.last_update_success = False
     assert entity.available is False
@@ -126,127 +149,177 @@ async def test_camera_initializes_native_webrtc_stream(
     manager_options = manager_factory.call_args.kwargs
     assert manager_options["logger"] is camera_module._LOGGER
     assert manager_options["hass_provider"]() is hass_mock
-    assert manager_options["client_factory"] == entity._create_stream_client
-    assert manager_options["authenticate_client"] == entity._authenticate_stream_client
+    assert manager_options["client_factory"] == coordinator.media.client_provider.create_client
+    assert (
+        manager_options["authenticate_client"]
+        == coordinator.media.client_provider.async_authenticate
+    )
     assert manager_options["is_pro_hardware"]() is True
+    assert manager_options["session_state_callback"] == entity._handle_streaming_state
     assert manager_options["login_timeout_seconds"] == 15
     assert manager_options["websocket_heartbeat_seconds"] == 30.0
     assert manager_options["max_pending_ice_candidates"] == 64
 
+    assert entity._recorder is coordinator.media.recording
+    entity._recorder.async_add_state_listener.assert_called_once_with(
+        entity._handle_recording_state
+    )
 
-@pytest.mark.parametrize(
-    ("config_entry", "expected"),
-    [
-        (None, None),
-        (SimpleNamespace(data={}), None),
-        (SimpleNamespace(data={CONF_PASSWORD: "password"}), None),
-        (SimpleNamespace(data={CONF_USERNAME: "admin"}), None),
-        (
-            SimpleNamespace(data={CONF_USERNAME: "admin", CONF_PASSWORD: "password"}),
-            ("admin", "password"),
-        ),
-    ],
-)
-def test_stream_credentials_require_complete_config(
+
+def test_camera_streaming_state_tracks_native_webrtc_sessions(
+    hass_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
-    config_entry: SimpleNamespace | None,
-    expected: tuple[str, str] | None,
 ) -> None:
-    """Stream credentials are usable only when both values are configured."""
-    entity, _manager, _manager_factory = _camera(
-        monkeypatch, _coordinator(config_entry=config_entry)
-    )
+    """The camera is streaming only while its WebRTC manager has a session."""
+    entity, _manager, manager_factory = _camera(monkeypatch)
+    entity.hass = hass_mock
+    write_state = MagicMock()
+    monkeypatch.setattr(entity, "async_write_ha_state", write_state)
+    state_callback = manager_factory.call_args.kwargs["session_state_callback"]
 
-    assert entity._stream_credentials() == expected
+    state_callback(True)
+
+    assert entity.is_streaming is True
+    assert entity.state == CameraState.STREAMING
+
+    state_callback(False)
+
+    assert entity.is_streaming is False
+    assert entity.state == CameraState.IDLE
+    assert write_state.call_count == 2
 
 
-@pytest.mark.parametrize("config_entry", [None, SimpleNamespace(data={})])
-def test_create_stream_client_requires_config_data(
+def test_camera_reuses_entry_scoped_recording_controller(
     monkeypatch: pytest.MonkeyPatch,
-    config_entry: SimpleNamespace | None,
 ) -> None:
-    """No standalone stream client is created without entry data."""
-    entity, _manager, _manager_factory = _camera(
-        monkeypatch, _coordinator(config_entry=config_entry)
-    )
-    client_factory = MagicMock()
-    monkeypatch.setattr(camera_module, "NanoKVMClient", client_factory)
+    """The entity never creates a second recorder for the same config entry."""
+    coordinator = _coordinator(is_pro_hardware=False)
+    entity, _manager, _manager_factory = _camera(monkeypatch, coordinator)
 
-    assert entity._create_stream_client() is None
-    client_factory.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    ("url", "expected_fingerprint"),
-    [
-        (URL("http://nanokvm.local/api/"), None),
-        (URL("https://nanokvm.local/api/"), "sha256:fingerprint"),
-    ],
-)
-def test_create_stream_client_reuses_active_transport(
-    monkeypatch: pytest.MonkeyPatch,
-    url: URL,
-    expected_fingerprint: str | None,
-) -> None:
-    """Stream clients inherit the resolved URL, token, and HTTPS fingerprint."""
-    config_entry = SimpleNamespace(
-        data={
-            CONF_USERNAME: "admin",
-            CONF_PASSWORD: "password",
-            CONF_SSL_FINGERPRINT: "sha256:fingerprint",
-        }
-    )
-    entity, _manager, _manager_factory = _camera(
-        monkeypatch,
-        _coordinator(
-            client=SimpleNamespace(url=url, token="existing-token"),
-            config_entry=config_entry,
-        ),
-    )
-    stream_client = object()
-    client_factory = MagicMock(return_value=stream_client)
-    monkeypatch.setattr(camera_module, "NanoKVMClient", client_factory)
-
-    assert entity._create_stream_client() is stream_client
-    client_factory.assert_called_once_with(
-        str(url),
-        token="existing-token",
-        ssl_fingerprint=expected_fingerprint,
-    )
+    assert entity._recorder is coordinator.media.recording
 
 
 @pytest.mark.asyncio
-async def test_authenticate_stream_client_rejects_missing_credentials(
+async def test_hdmi_recording_allows_video_only_on_non_pro_hardware(
+    hass_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Missing credentials fail before an authentication request is attempted."""
-    entity, _manager, _manager_factory = _camera(
-        monkeypatch, _coordinator(config_entry=None)
-    )
-    client = SimpleNamespace(token=None, authenticate=AsyncMock())
-
-    with pytest.raises(RuntimeError, match="Missing NanoKVM stream credentials"):
-        await entity._authenticate_stream_client(client)
-
-    client.authenticate.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("token", ["existing-token", None])
-async def test_authenticate_stream_client_uses_existing_or_configured_auth(
-    monkeypatch: pytest.MonkeyPatch,
-    token: str | None,
-) -> None:
-    """Existing tokens bypass login while empty clients authenticate once."""
+    """Video-only direct recording is available on non-Pro hardware."""
     entity, _manager, _manager_factory = _camera(monkeypatch)
-    client = SimpleNamespace(token=token, authenticate=AsyncMock())
+    entity.hass = hass_mock
+    hass_mock.config = SimpleNamespace(is_allowed_path=MagicMock())
+    hass_mock.async_add_executor_job = AsyncMock(return_value=True)
 
-    await entity._authenticate_stream_client(client)
+    await entity.async_start_hdmi_recording(
+        filename="/config/www/capture.mp4",
+        duration=60,
+        include_audio=False,
+    )
 
-    if token:
-        client.authenticate.assert_not_awaited()
-    else:
-        client.authenticate.assert_awaited_once_with("admin", "password")
+    entity._recorder.async_start.assert_awaited_once_with(
+        filename="/config/www/capture.mp4",
+        duration=60,
+        include_audio=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_hdmi_recording_rejects_audio_on_non_pro_hardware(
+    hass_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-Pro devices reject audio because the direct stream is video-only."""
+    entity, _manager, _manager_factory = _camera(monkeypatch)
+    entity.hass = hass_mock
+
+    with pytest.raises(HomeAssistantError, match="audio recording is only available"):
+        await entity.async_start_hdmi_recording(
+            filename="/config/www/capture.mp4",
+            duration=60,
+            include_audio=True,
+        )
+
+    entity._recorder.async_start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hdmi_recording_requires_mp4_and_allowed_path(
+    hass_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The entity rejects unsupported containers and paths outside HA's allowlist."""
+    entity, _manager, _manager_factory = _camera(
+        monkeypatch, _coordinator(is_pro_hardware=True)
+    )
+    entity.hass = hass_mock
+    is_allowed_path = MagicMock()
+    hass_mock.config = SimpleNamespace(is_allowed_path=is_allowed_path)
+    hass_mock.async_add_executor_job = AsyncMock(return_value=False)
+
+    with pytest.raises(HomeAssistantError, match="must use the .mp4 extension"):
+        await entity.async_start_hdmi_recording(
+            filename="/config/www/capture.mkv",
+            duration=60,
+            include_audio=True,
+        )
+
+    with pytest.raises(HomeAssistantError, match="not in an allowed directory"):
+        await entity.async_start_hdmi_recording(
+            filename="/tmp/capture.mp4",
+            duration=60,
+            include_audio=True,
+        )
+
+    entity._recorder.async_start.assert_not_awaited()
+    hass_mock.async_add_executor_job.assert_awaited_once_with(
+        is_allowed_path, "/tmp/capture.mp4"
+    )
+    is_allowed_path.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_hdmi_recording_delegates_and_updates_camera_state(
+    hass_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Validated recording actions delegate and recorder state reaches Home Assistant."""
+    entity, _manager, _manager_factory = _camera(
+        monkeypatch, _coordinator(is_pro_hardware=True)
+    )
+    entity.hass = hass_mock
+    is_allowed_path = MagicMock()
+    hass_mock.config = SimpleNamespace(is_allowed_path=is_allowed_path)
+    hass_mock.async_add_executor_job = AsyncMock(return_value=True)
+    write_state = MagicMock()
+    monkeypatch.setattr(entity, "async_write_ha_state", write_state)
+
+    await entity.async_start_hdmi_recording(
+        filename="/config/www/capture.mp4",
+        duration=60,
+        include_audio=False,
+    )
+    await entity.async_stop_hdmi_recording()
+
+    entity._recorder.async_start.assert_awaited_once_with(
+        filename="/config/www/capture.mp4",
+        duration=60,
+        include_audio=False,
+    )
+    entity._recorder.async_stop.assert_awaited_once_with()
+    hass_mock.async_add_executor_job.assert_awaited_once_with(
+        is_allowed_path, "/config/www/capture.mp4"
+    )
+    is_allowed_path.assert_not_called()
+
+    state_callback = entity._recorder.async_add_state_listener.call_args.args[0]
+    state_callback(True)
+    assert entity.is_recording is True
+    assert entity.state == CameraState.RECORDING
+    state_callback(False)
+    assert entity.is_recording is False
+    assert entity.state == CameraState.IDLE
+    assert write_state.call_count == 2
+
 
 
 @pytest.mark.asyncio
@@ -257,8 +330,7 @@ async def test_snapshot_is_suppressed_on_pro_hardware(
     entity, _manager, _manager_factory = _camera(
         monkeypatch, _coordinator(is_pro_hardware=True)
     )
-    create_client = MagicMock()
-    monkeypatch.setattr(entity, "_create_stream_client", create_client)
+    create_client = entity._media.client_provider.create_client
 
     assert await entity._async_read_snapshot_frame() is None
     create_client.assert_not_called()
@@ -270,7 +342,7 @@ async def test_snapshot_returns_none_when_client_cannot_be_created(
 ) -> None:
     """Snapshot reads stop cleanly when the config cannot build a client."""
     entity, _manager, _manager_factory = _camera(monkeypatch)
-    monkeypatch.setattr(entity, "_create_stream_client", MagicMock(return_value=None))
+    entity._media.client_provider.create_client.return_value = None
 
     assert await entity._async_read_snapshot_frame() is None
 
@@ -345,8 +417,8 @@ async def test_snapshot_scans_multipart_response_for_nonempty_frame(
     client = _StreamClient(upstream)
     authenticate = AsyncMock()
     reader = _Reader(parts)
-    monkeypatch.setattr(entity, "_create_stream_client", MagicMock(return_value=client))
-    monkeypatch.setattr(entity, "_authenticate_stream_client", authenticate)
+    entity._media.client_provider.create_client.return_value = client
+    entity._media.client_provider.async_authenticate = authenticate
     monkeypatch.setattr(camera_module, "BodyPartReader", _BodyPart)
     from_response = MagicMock(return_value=reader)
     monkeypatch.setattr(camera_module.MultipartReader, "from_response", from_response)
@@ -424,16 +496,18 @@ async def test_webrtc_calls_delegate_to_manager(
 
 
 @pytest.mark.asyncio
-async def test_camera_removal_runs_entity_and_webrtc_cleanup(
+async def test_camera_removal_unsubscribes_recording_and_stops_webrtc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Removal executes inherited entity cleanup before manager shutdown."""
+    """Entity removal drops its listener without stopping the shared recorder."""
     calls: list[str] = []
 
     async def super_cleanup(_entity: object) -> None:
         calls.append("entity")
 
     entity, manager, _manager_factory = _camera(monkeypatch)
+    remove_listener = entity._remove_recording_listener
+    remove_listener.side_effect = lambda: calls.append("listener")
     manager.async_shutdown.side_effect = lambda: calls.append("webrtc")
     monkeypatch.setattr(
         camera_module.NanoKVMEntity,
@@ -443,5 +517,6 @@ async def test_camera_removal_runs_entity_and_webrtc_cleanup(
 
     await entity.async_will_remove_from_hass()
 
-    assert calls == ["entity", "webrtc"]
+    assert calls == ["entity", "listener", "webrtc"]
+    remove_listener.assert_called_once_with()
     manager.async_shutdown.assert_awaited_once_with()

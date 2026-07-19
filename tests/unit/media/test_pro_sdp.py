@@ -5,7 +5,7 @@ from __future__ import annotations
 from webrtc_models import RTCIceCandidateInit
 import pytest
 
-from custom_components.nanokvm.camera_webrtc_sdp import (
+from custom_components.nanokvm.media.pro_sdp import (
     ProMediaSection,
     ProWebRTCOffer,
     _first_media_section_for_kind,
