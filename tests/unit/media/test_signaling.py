@@ -22,8 +22,8 @@ import pytest_asyncio
 from webrtc_models import RTCIceCandidateInit
 from yarl import URL
 
-from custom_components.nanokvm import camera_webrtc as webrtc_module
-from custom_components.nanokvm.camera_webrtc import NanoKVMWebRTCManager
+from custom_components.nanokvm.media import signaling as webrtc_module
+from custom_components.nanokvm.media.signaling import NanoKVMWebRTCManager
 
 
 COMBINED_OFFER = "\r\n".join(
@@ -226,6 +226,7 @@ class WebRTCHarness:
         hass_ready: bool = True,
         pro: bool = False,
         authenticate_error: Exception | None = None,
+        session_state_callback: Callable[[bool], None] | None = None,
         signaling_heartbeat_seconds: float = 60.0,
         max_pending_ice_candidates: int = 64,
     ) -> None:
@@ -246,6 +247,7 @@ class WebRTCHarness:
             client_factory=lambda: self.clients.popleft(),
             authenticate_client=authenticate,
             is_pro_hardware=lambda: pro,
+            session_state_callback=session_state_callback,
             signaling_heartbeat_seconds=signaling_heartbeat_seconds,
             max_pending_ice_candidates=max_pending_ice_candidates,
         )
@@ -360,6 +362,33 @@ async def test_non_pro_session_signals_offer_answer_candidate_and_cleanup(
     ]
     assert client.websocket.closed
     assert client.exit_calls == 1
+
+
+async def test_session_state_callback_tracks_first_open_and_last_close(
+    harness_factory: Callable[..., WebRTCHarness],
+) -> None:
+    """Only the first open and last close transition the public streaming state."""
+    clients = [FakeClient(), FakeClient()]
+    states: list[bool] = []
+    harness = harness_factory(
+        clients=clients,
+        session_state_callback=states.append,
+    )
+
+    await harness.manager.async_handle_async_webrtc_offer(
+        VIDEO_ONLY_OFFER, "first", lambda _message: None
+    )
+    await harness.manager.async_handle_async_webrtc_offer(
+        VIDEO_ONLY_OFFER, "second", lambda _message: None
+    )
+
+    assert states == [True]
+
+    await harness.manager._async_close_webrtc_session("first")
+    assert states == [True]
+
+    await harness.manager._async_close_webrtc_session("second")
+    assert states == [True, False]
 
 
 async def test_reader_ignores_malformed_irrelevant_and_non_text_messages(
@@ -481,7 +510,7 @@ async def test_pro_video_only_offer_completes_with_one_answer(
 async def test_pro_inconsistent_video_status_reports_error_and_closes(
     harness_factory: Callable[..., WebRTCHarness],
 ) -> None:
-    """The device's conflicting-video-mode status must terminate the session."""
+    """A conflicting firmware video mode must not leave a frozen HA session."""
     client = FakeClient()
     harness = harness_factory(clients=[client], pro=True)
     messages: list[object] = []
@@ -492,16 +521,20 @@ async def test_pro_inconsistent_video_status_reports_error_and_closes(
     client.websocket.feed_signal("video-status", json.dumps({"status": "-4"}))
     await harness.hass.tasks[0]
 
-    assert messages == [
-        WebRTCError(
-            code="webrtc_inconsistent_video_mode",
-            message=(
-                "NanoKVM Pro stopped WebRTC video because another video mode is active"
-            ),
-        )
-    ]
-    assert client.websocket.closed
-    assert client.exit_calls == 1
+    try:
+        assert messages == [
+            WebRTCError(
+                code="webrtc_inconsistent_video_mode",
+                message=(
+                    "NanoKVM Pro stopped WebRTC video because another video mode "
+                    "is active"
+                ),
+            )
+        ]
+        assert client.websocket.closed
+        assert client.exit_calls == 1
+    finally:
+        await harness.manager.async_shutdown()
 
 
 @pytest.mark.parametrize(
@@ -878,10 +911,10 @@ async def test_heartbeat_stops_when_websocket_is_already_closed(
     assert [message["event"] for message in client.websocket.sent] == ["video-offer"]
 
 
-async def test_new_pro_session_closes_other_active_session_first(
+async def test_new_pro_session_keeps_other_active_session_alive(
     harness_factory: Callable[..., WebRTCHarness],
 ) -> None:
-    """NanoKVM Pro's single-stream constraint must retire another session."""
+    """NanoKVM Pro can broadcast one encoder stream to multiple clients."""
     first = FakeClient()
     second = FakeClient()
     harness = harness_factory(clients=[first, second], pro=True)
@@ -893,8 +926,8 @@ async def test_new_pro_session_closes_other_active_session_first(
         VIDEO_ONLY_OFFER, "second", lambda value: None
     )
 
-    assert first.websocket.closed
-    assert first.exit_calls == 1
+    assert not first.websocket.closed
+    assert first.exit_calls == 0
     assert not second.websocket.closed
     assert second.exit_calls == 0
 

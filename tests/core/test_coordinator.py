@@ -1201,8 +1201,10 @@ async def test_shutdown_cleans_owned_resources_when_base_shutdown_fails(
     """Coordinator-owned tasks and SSH are released even if base cleanup fails."""
     task = asyncio.create_task(asyncio.Event().wait())
     collector = SimpleNamespace(disconnect=AsyncMock())
+    media = SimpleNamespace(async_shutdown=AsyncMock())
     coordinator._app_version_fetch_task = task
     coordinator.ssh_metrics_collector = collector
+    coordinator.media = media
     base_shutdown = AsyncMock(side_effect=RuntimeError("base failed"))
     monkeypatch.setattr(DataUpdateCoordinator, "async_shutdown", base_shutdown)
 
@@ -1213,3 +1215,4 @@ async def test_shutdown_cleans_owned_resources_when_base_shutdown_fails(
     assert coordinator._app_version_fetch_task is None
     collector.disconnect.assert_awaited_once_with()
     assert coordinator.ssh_metrics_collector is None
+    media.async_shutdown.assert_awaited_once_with()

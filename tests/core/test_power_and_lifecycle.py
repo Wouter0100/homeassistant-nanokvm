@@ -129,8 +129,10 @@ def test_coordinator_shutdown_stops_base_and_owned_resources() -> None:
         coordinator, _ = _coordinator()
         app_version_task = asyncio.create_task(asyncio.Event().wait())
         collector = SimpleNamespace(disconnect=AsyncMock())
+        media = SimpleNamespace(async_shutdown=AsyncMock())
         coordinator._app_version_fetch_task = app_version_task
         coordinator.ssh_metrics_collector = collector
+        coordinator.media = media
 
         await coordinator.async_shutdown()
 
@@ -139,6 +141,7 @@ def test_coordinator_shutdown_stops_base_and_owned_resources() -> None:
         assert coordinator._app_version_fetch_task is None
         collector.disconnect.assert_awaited_once_with()
         assert coordinator.ssh_metrics_collector is None
+        media.async_shutdown.assert_awaited_once_with()
 
     asyncio.run(run_shutdown())
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.const import CONF_HOST
 from nanokvm.models import HWVersion
@@ -50,6 +50,15 @@ def _coordinator(**overrides: object) -> SimpleNamespace:
         "lcd_time_format": None,
         "led_strip": None,
         "low_power": None,
+        "media": SimpleNamespace(
+            recording=SimpleNamespace(
+                is_recording=False,
+                current_filename=None,
+                async_add_state_listener=MagicMock(return_value=MagicMock()),
+            ),
+            async_start_automatic=AsyncMock(),
+            async_stop_automatic=AsyncMock(),
+        ),
         "mdns_state": SimpleNamespace(enabled=False),
         "mounted_image": None,
         "mouse_jiggler_state": None,

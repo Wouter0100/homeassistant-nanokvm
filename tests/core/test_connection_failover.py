@@ -126,7 +126,10 @@ def test_entry_setup_disconnect_tries_https(monkeypatch: MonkeyPatch) -> None:
                     application="1.0.0",
                 )
 
-        coordinator = SimpleNamespace(async_config_entry_first_refresh=AsyncMock())
+        coordinator = SimpleNamespace(
+            async_config_entry_first_refresh=AsyncMock(),
+            is_pro_hardware=False,
+        )
         coordinator_factory = MagicMock(return_value=coordinator)
         monkeypatch.setattr(nanokvm_module, "NanoKVMClient", FakeClient)
         monkeypatch.setattr(

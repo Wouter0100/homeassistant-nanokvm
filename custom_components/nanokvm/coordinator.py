@@ -135,6 +135,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.ssh_metrics_collector = None
         self.hostname_info = None
         self.watchdog_enabled = None
+        self.media = None
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
@@ -777,6 +778,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                         await self._app_version_fetch_task
                     self._app_version_fetch_task = None
             finally:
-                if self.ssh_metrics_collector:
-                    await self.ssh_metrics_collector.disconnect()
-                    self.ssh_metrics_collector = None
+                try:
+                    if self.ssh_metrics_collector:
+                        await self.ssh_metrics_collector.disconnect()
+                        self.ssh_metrics_collector = None
+                finally:
+                    if self.media is not None:
+                        await self.media.async_shutdown()
+                        self.media = None

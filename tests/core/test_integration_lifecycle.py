@@ -98,7 +98,10 @@ def _install_coordinator(
 ) -> tuple[MagicMock, SimpleNamespace]:
     """Install a coordinator factory with a scripted first refresh."""
     refresh = AsyncMock(side_effect=refresh_error)
-    coordinator = SimpleNamespace(async_config_entry_first_refresh=refresh)
+    coordinator = SimpleNamespace(
+        async_config_entry_first_refresh=refresh,
+        is_pro_hardware=False,
+    )
     factory = MagicMock(return_value=coordinator)
     monkeypatch.setattr(nanokvm_module, "NanoKVMDataUpdateCoordinator", factory)
     return factory, coordinator
@@ -122,6 +125,9 @@ async def test_setup_entry_success_initializes_coordinator_platforms_and_service
     config_entry_mock.data[CONF_USE_STATIC_HOST] = True
     client_type = install_setup_client(SetupScenario())
     coordinator_factory, coordinator = _install_coordinator(monkeypatch)
+    media = SimpleNamespace(async_shutdown=AsyncMock())
+    media_factory = MagicMock(return_value=media)
+    monkeypatch.setattr(nanokvm_module, "NanoKVMMediaRuntime", media_factory)
     register_services = MagicMock()
     monkeypatch.setattr(nanokvm_module, "async_register_services", register_services)
 
@@ -143,6 +149,8 @@ async def test_setup_entry_success_initializes_coordinator_platforms_and_service
         or SimpleNamespace(device_key="device-key", application="1.0.0"),
     }
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
+    media_factory.assert_called_once_with(coordinator, logger=nanokvm_module._LOGGER)
+    assert coordinator.media is media
     assert hass_mock.data[DOMAIN][config_entry_mock.entry_id] is coordinator
     hass_mock.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         config_entry_mock,
