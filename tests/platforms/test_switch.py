@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.const import EntityCategory
 from nanokvm.models import VirtualDevice
@@ -12,6 +13,7 @@ import pytest
 from custom_components.nanokvm.switch import (
     SSH_SWITCHES,
     SWITCHES,
+    NanoKVMRecordingSwitch,
     NanoKVMSwitch,
     NanoKVMSwitchEntityDescription,
     _hdmi_available,
@@ -324,3 +326,69 @@ def test_switch_entity_delegates_state_and_combines_availability(
     assert entity.is_on is True
     assert entity.available is expected
     assert entity.unique_id == "device-key_switch_sample"
+
+
+@pytest.mark.asyncio
+async def test_recording_switch_controls_and_observes_shared_media_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recording switch is a view over the entry-scoped controller."""
+    listener_remove = MagicMock()
+    recording = SimpleNamespace(
+        is_recording=False,
+        current_filename=None,
+        async_add_state_listener=MagicMock(return_value=listener_remove),
+    )
+    media = SimpleNamespace(
+        recording=recording,
+        async_start_automatic=AsyncMock(
+            return_value="/media/nanokvm/device-key/20260719000300.mp4"
+        ),
+        async_stop_automatic=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device_info=SimpleNamespace(device_key="device-key"),
+        last_update_success=True,
+        media=media,
+    )
+    entity = NanoKVMRecordingSwitch(coordinator)
+    write_state = MagicMock()
+    monkeypatch.setattr(entity, "async_write_ha_state", write_state)
+
+    assert entity.unique_id == "device-key_switch_hdmi_recording"
+    assert entity.is_on is False
+    assert entity.extra_state_attributes["maximum_duration_minutes"] == 30
+
+    await entity.async_turn_on()
+    media.async_start_automatic.assert_awaited_once_with()
+
+    recording.is_recording = True
+    recording.current_filename = "/media/nanokvm/device-key/20260719000300.mp4"
+    listener = recording.async_add_state_listener.call_args.args[0]
+    listener(True)
+    assert entity.is_on is True
+    assert entity.extra_state_attributes["filename"] == recording.current_filename
+    write_state.assert_called_once_with()
+
+    await entity.async_turn_off()
+    media.async_stop_automatic.assert_awaited_once_with()
+
+    monkeypatch.setattr(
+        NanoKVMSwitch,
+        "async_will_remove_from_hass",
+        AsyncMock(),
+    )
+    await entity.async_will_remove_from_hass()
+    listener_remove.assert_called_once_with()
+
+
+def test_recording_switch_requires_entry_scoped_media_runtime() -> None:
+    """The dedicated switch cannot create a private recorder as a fallback."""
+    coordinator = SimpleNamespace(
+        device_info=SimpleNamespace(device_key="device-key"),
+        last_update_success=True,
+        media=None,
+    )
+
+    with pytest.raises(RuntimeError, match="media runtime is not initialized"):
+        NanoKVMRecordingSwitch(coordinator)

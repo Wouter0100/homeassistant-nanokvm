@@ -378,10 +378,12 @@ async def test_switch_setup_uses_specialized_entities_and_dynamic_watchdog(
         "virtual_network",
         "virtual_disk",
         "power",
+        "hdmi_recording",
     ]
     assert isinstance(batches[0][2], switch_module.NanoKVMVirtualDeviceSwitch)
     assert isinstance(batches[0][3], switch_module.NanoKVMVirtualDeviceSwitch)
     assert isinstance(batches[0][4], switch_module.NanoKVMPowerSwitch)
+    assert isinstance(batches[0][5], switch_module.NanoKVMRecordingSwitch)
 
     signal = SIGNAL_NEW_SSH_SWITCHES.format(config_entry_mock.entry_id)
     assert set(callbacks) == {signal}

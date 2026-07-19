@@ -209,6 +209,17 @@
       },
       "watchdog": {
         "name": "Watchdog"
+      },
+      "hdmi_recording": {
+        "name": "HDMI Recording",
+        "state_attributes": {
+          "filename": {
+            "name": "Filename"
+          },
+          "maximum_duration_minutes": {
+            "name": "Maximum duration"
+          }
+        }
       }
     },
     "select": {

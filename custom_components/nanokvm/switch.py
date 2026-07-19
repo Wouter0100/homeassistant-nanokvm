@@ -32,6 +32,7 @@ from .const import (
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
 from .led import build_led_strip_config
+from .media.runtime import MAX_AUTOMATIC_RECORDING_DURATION_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -289,6 +290,13 @@ SSH_SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
 )
 
+RECORDING_SWITCH = NanoKVMSwitchEntityDescription(
+    key="hdmi_recording",
+    name="HDMI Recording",
+    translation_key="hdmi_recording",
+    icon="mdi:record-rec",
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -327,6 +335,8 @@ async def async_setup_entry(
                     description=description,
                 )
             )
+
+    entities.append(NanoKVMRecordingSwitch(coordinator))
 
     async_add_entities(entities)
 
@@ -409,6 +419,57 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
             await self.entity_description.turn_off_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
+
+class NanoKVMRecordingSwitch(NanoKVMSwitch):
+    """Expose the shared bounded HDMI recorder as a Home Assistant switch."""
+
+    def __init__(self, coordinator: NanoKVMDataUpdateCoordinator) -> None:
+        """Initialize the recording switch and subscribe to controller state."""
+        super().__init__(coordinator, RECORDING_SWITCH)
+        media = coordinator.media
+        if media is None:
+            raise RuntimeError("NanoKVM media runtime is not initialized")
+        self._media = media
+        self._remove_recording_listener = (
+            media.recording.async_add_state_listener(self._handle_recording_state)
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return whether the shared recorder has captured its first frame."""
+        return self._media.recording.is_recording
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the bounded duration and active output path."""
+        attributes: dict[str, Any] = {
+            "maximum_duration_minutes": (
+                MAX_AUTOMATIC_RECORDING_DURATION_SECONDS // 60
+            )
+        }
+        if self._media.recording.current_filename is not None:
+            attributes["filename"] = self._media.recording.current_filename
+        return attributes
+
+    @callback
+    def _handle_recording_state(self, _recording: bool) -> None:
+        """Publish shared controller state changes immediately."""
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Start a timestamped video-only recording for at most thirty minutes."""
+        del kwargs
+        await self._media.async_start_automatic()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Stop and finalize the active recording."""
+        del kwargs
+        await self._media.async_stop_automatic()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe without stopping the config-entry scoped recorder."""
+        await super().async_will_remove_from_hass()
+        self._remove_recording_listener()
 
 class NanoKVMPowerSwitch(NanoKVMSwitch):
     """Defines a NanoKVM power switch with special shutdown behavior."""
