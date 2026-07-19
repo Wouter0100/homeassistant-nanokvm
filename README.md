@@ -1,8 +1,6 @@
 # Sipeed NanoKVM Integration for Home Assistant
 
 [![HACS][badge-hacs]][link-hacs]
-[![GitHub Release][badge-release]][link-release]
-[![GitHub Commit Activity][badge-commit-activity]][link-commits]
 [![Tests][badge-tests]][link-tests]
 [![HACS Validation][badge-hacs-validation]][link-hacs-validation]
 [![Hassfest][badge-hassfest]][link-hassfest]
@@ -210,14 +208,10 @@ automation:
   [`python-nanokvm`](https://github.com/puddly/python-nanokvm).
 
 [badge-hacs]: https://img.shields.io/badge/HACS-Default-41BDF5.svg
-[badge-release]: https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FWouter0100%2Fhomeassistant-nanokvm%2Freleases%2Flatest&query=%24.tag_name&label=release
-[badge-commit-activity]: https://img.shields.io/github/commit-activity/m/Wouter0100/homeassistant-nanokvm
 [badge-tests]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/tests.yaml/badge.svg
 [badge-hacs-validation]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hacs.yaml/badge.svg
 [badge-hassfest]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hassfest.yaml/badge.svg
 [link-hacs]: https://github.com/custom-components/hacs
-[link-release]: https://github.com/Wouter0100/homeassistant-nanokvm/releases/latest
-[link-commits]: https://github.com/Wouter0100/homeassistant-nanokvm/commits/main
 [link-tests]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/tests.yaml
 [link-hacs-validation]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hacs.yaml
 [link-hassfest]: https://github.com/Wouter0100/homeassistant-nanokvm/actions/workflows/hassfest.yaml
