@@ -1,1 +1,1 @@
-"""Media signaling and recording support for NanoKVM cameras."""
+"""Media signaling helpers for NanoKVM cameras."""

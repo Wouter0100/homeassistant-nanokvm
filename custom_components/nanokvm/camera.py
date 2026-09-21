@@ -12,7 +12,6 @@ from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.components.camera.webrtc import WebRTCSendMessage
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from webrtc_models import RTCIceCandidateInit
@@ -20,6 +19,7 @@ from webrtc_models import RTCIceCandidateInit
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .const import DOMAIN, ICON_HDMI
 from .entity import NanoKVMEntity
+from .media.client import NanoKVMStreamClientProvider
 from .media.signaling import NanoKVMWebRTCManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,26 +83,18 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
         )
         Camera.__init__(self)
         self._attr_supported_features = CameraEntityFeature.STREAM
-        media = self.coordinator.media
-        if media is None:
-            raise RuntimeError("NanoKVM media runtime is not initialized")
-        self._media = media
-        self._recorder = media.recording
-        self._attr_is_recording = self._recorder.is_recording
         self._attr_is_streaming = False
+        self._client_provider = NanoKVMStreamClientProvider(self.coordinator)
         self._webrtc = NanoKVMWebRTCManager(
             logger=_LOGGER,
             hass_provider=lambda: self.hass,
-            client_factory=media.client_provider.create_client,
-            authenticate_client=media.client_provider.async_authenticate,
+            client_factory=self._client_provider.create_client,
+            authenticate_client=self._client_provider.async_authenticate,
             is_pro_hardware=lambda: self.coordinator.is_pro_hardware,
             session_state_callback=self._handle_streaming_state,
             login_timeout_seconds=LOGIN_TIMEOUT_SECONDS,
             websocket_heartbeat_seconds=WEBSOCKET_HEARTBEAT_SECONDS,
             max_pending_ice_candidates=MAX_PENDING_ICE_CANDIDATES,
-        )
-        self._remove_recording_listener = self._recorder.async_add_state_listener(
-            self._handle_recording_state
         )
 
     @callback
@@ -110,43 +102,6 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
         """Publish active WebRTC session state through the camera entity."""
         self._attr_is_streaming = streaming
         self.async_write_ha_state()
-
-    @callback
-    def _handle_recording_state(self, recording: bool) -> None:
-        """Publish recorder lifecycle changes through the camera entity state."""
-        self._attr_is_recording = recording
-        self.async_write_ha_state()
-
-    async def async_start_hdmi_recording(
-        self,
-        *,
-        filename: str,
-        duration: int,
-        include_audio: bool,
-    ) -> None:
-        """Start recording the NanoKVM HDMI stream to an MP4 file."""
-        if include_audio and not self.coordinator.is_pro_hardware:
-            raise HomeAssistantError(
-                "HDMI audio recording is only available for NanoKVM Pro devices"
-            )
-        if not filename.lower().endswith(".mp4"):
-            raise HomeAssistantError("HDMI recording filename must use the .mp4 extension")
-        if not await self.hass.async_add_executor_job(
-            self.hass.config.is_allowed_path, filename
-        ):
-            raise HomeAssistantError(
-                f"HDMI recording path {filename} is not in an allowed directory"
-            )
-
-        await self._recorder.async_start(
-            filename=filename,
-            duration=duration,
-            include_audio=include_audio,
-        )
-
-    async def async_stop_hdmi_recording(self) -> None:
-        """Stop the active HDMI recording, if any."""
-        await self._recorder.async_stop()
 
     async def _async_read_snapshot_frame(self) -> bytes | None:
         """Read one JPEG frame from NanoKVM MJPEG endpoint for snapshots."""
@@ -157,12 +112,12 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
             )
             return None
 
-        client = self._media.client_provider.create_client()
+        client = self._client_provider.create_client()
         if client is None:
             return None
 
         async with client:
-            await self._media.client_provider.async_authenticate(client)
+            await self._client_provider.async_authenticate(client)
             # Reuse NanoKVMClient's authenticated session and SSL config for MJPEG.
             async with client._request(
                 aiohttp.hdrs.METH_GET,
@@ -217,5 +172,4 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
     async def async_will_remove_from_hass(self) -> None:
         """Cleanup camera resources when entity is removed."""
         await super().async_will_remove_from_hass()
-        self._remove_recording_listener()
         await self._webrtc.async_shutdown()
