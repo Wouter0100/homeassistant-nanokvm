@@ -57,6 +57,7 @@ def _collector(
     monkeypatch: pytest.MonkeyPatch,
     *,
     ssh_client: object | None = None,
+    known_hosts: str | None = None,
 ) -> tuple[SSHMetricsCollector, _FakeSSHClient, MagicMock]:
     """Return a collector whose external SSH client boundary is mocked."""
     client = _FakeSSHClient(ssh_client)
@@ -67,6 +68,7 @@ def _collector(
         host="nanokvm.local",
         password="secret",
         username="operator",
+        known_hosts=known_hosts,
     )
     return collector, client, client_factory
 
@@ -153,8 +155,26 @@ def test_constructor_configures_the_library_ssh_client(
     """Collector construction forwards only connection identity to the client."""
     collector, client, client_factory = _collector(monkeypatch)
 
-    client_factory.assert_called_once_with(host="nanokvm.local", username="operator")
+    client_factory.assert_called_once_with(
+        host="nanokvm.local",
+        username="operator",
+        allow_unknown_host_key=False,
+    )
     assert collector._client is client
+
+
+def test_constructor_forwards_approved_known_hosts_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved per-entry trust file reaches the library unchanged."""
+    _collector(monkeypatch, known_hosts="/config/nanokvm/ssh/entry.known_hosts")
+
+    ssh_metrics_module.NanoKVMSSH.assert_called_once_with(
+        host="nanokvm.local",
+        username="operator",
+        allow_unknown_host_key=False,
+        known_hosts="/config/nanokvm/ssh/entry.known_hosts",
+    )
 
 
 @pytest.mark.parametrize("connected", [False, True])

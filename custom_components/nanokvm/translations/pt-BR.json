@@ -32,10 +32,20 @@
       "ssl_fingerprint_changed": {
         "title": "Certificado SSL alterado",
         "description": "O certificado SSL do dispositivo NanoKVM em **{host}** foi alterado.\n\n**Impressão digital anterior:**\n`{old_fingerprint}`\n\n**Nova impressão digital:**\n`{new_fingerprint}`\n\nIsso pode significar que o dispositivo gerou um novo certificado ou que algo está interceptando a conexão. Aceite apenas se você esperava essa mudança."
+      },
+      "ssh_host_key": {
+        "title": "Verificar chave de host SSH",
+        "description": "O dispositivo NanoKVM em **{host}** apresentou esta impressão digital da chave de host SSH:\n\n`{fingerprint}`\n\nConfie nela somente se corresponder a uma impressão digital obtida de uma fonte confiável.",
+        "data": {
+          "trust_ssh_host_key": "Eu confio nesta chave de host SSH"
+        }
       }
     },
     "abort": {
-      "reauth_successful": "A reautenticação foi concluída com sucesso"
+      "reauth_successful": "A reautenticação foi concluída com sucesso",
+      "reconfigure_successful": "A verificação da chave de host SSH foi atualizada",
+      "ssh_host_key_not_trusted": "A chave de host SSH não foi confiada",
+      "ssh_host_key_unavailable": "Não foi possível verificar a chave de host SSH"
     },
     "error": {
       "cannot_connect": "Falha ao conectar",
