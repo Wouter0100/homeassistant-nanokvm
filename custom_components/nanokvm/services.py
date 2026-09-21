@@ -7,7 +7,6 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components.camera import DOMAIN as CAMERA_DOMAIN
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -15,7 +14,6 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import service
 
 from nanokvm.client import NanoKVMClient
 from nanokvm.models import GpioType, MouseJigglerMode
@@ -25,9 +23,7 @@ from .const import (
     ATTR_BRIGHTNESS,
     ATTR_DURATION,
     ATTR_ENABLED,
-    ATTR_FILENAME,
     ATTR_HORIZONTAL_COUNT,
-    ATTR_INCLUDE_AUDIO,
     ATTR_MAC,
     ATTR_MODE,
     ATTR_ON,
@@ -53,8 +49,6 @@ from .const import (
     SERVICE_SCAN_WIFI,
     SERVICE_SET_LED_STRIP,
     SERVICE_SET_MOUSE_JIGGLER,
-    SERVICE_START_HDMI_RECORDING,
-    SERVICE_STOP_HDMI_RECORDING,
     SERVICE_WAKE_ON_LAN,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -77,8 +71,6 @@ _SERVICE_NAMES = (
     SERVICE_IMAGE_DOWNLOAD_ENABLED,
     SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
     SERVICE_LIST_CUSTOM_EDIDS,
-    SERVICE_START_HDMI_RECORDING,
-    SERVICE_STOP_HDMI_RECORDING,
 )
 
 _OPTIONAL_HOST_FIELD = {
@@ -135,41 +127,6 @@ SET_LED_STRIP_SCHEMA = vol.Schema(
         ),
     }
 )
-
-START_HDMI_RECORDING_FIELDS = {
-    vol.Required(ATTR_FILENAME): vol.All(str, vol.Length(min=1)),
-    vol.Optional(ATTR_DURATION, default=3600): vol.All(
-        vol.Coerce(int), vol.Range(min=1, max=7200)
-    ),
-    vol.Optional(ATTR_INCLUDE_AUDIO, default=False): bool,
-}
-
-START_HDMI_RECORDING_SCHEMA = vol.Schema(START_HDMI_RECORDING_FIELDS)
-
-
-async def _async_start_hdmi_recording(
-    entities: list[Any], call: ServiceCall
-) -> None:
-    """Start one entity-targeted HDMI recording."""
-    if len(entities) != 1:
-        raise HomeAssistantError("Select exactly one NanoKVM camera")
-
-    await entities[0].async_start_hdmi_recording(
-        filename=call.data[ATTR_FILENAME],
-        duration=call.data[ATTR_DURATION],
-        include_audio=call.data[ATTR_INCLUDE_AUDIO],
-    )
-
-
-async def _async_stop_hdmi_recording(
-    entities: list[Any], _call: ServiceCall
-) -> None:
-    """Stop one entity-targeted HDMI recording."""
-    if len(entities) != 1:
-        raise HomeAssistantError("Select exactly one NanoKVM camera")
-
-    await entities[0].async_stop_hdmi_recording()
-
 
 def _model_to_response(value: Any) -> ServiceResponse:
     """Convert pydantic responses into Home Assistant service responses."""
@@ -560,24 +517,6 @@ def async_register_services(hass: HomeAssistant) -> None:
         schema=HOST_ONLY_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    service.async_register_batched_platform_entity_service(
-        hass,
-        service_domain=DOMAIN,
-        service_name=SERVICE_START_HDMI_RECORDING,
-        entity_domain=CAMERA_DOMAIN,
-        func=_async_start_hdmi_recording,
-        schema=START_HDMI_RECORDING_FIELDS,
-    )
-    service.async_register_batched_platform_entity_service(
-        hass,
-        service_domain=DOMAIN,
-        service_name=SERVICE_STOP_HDMI_RECORDING,
-        entity_domain=CAMERA_DOMAIN,
-        func=_async_stop_hdmi_recording,
-        schema=None,
-    )
-
-
 def async_unregister_services(hass: HomeAssistant) -> None:
     """Unregister integration services."""
     for service_name in _SERVICE_NAMES:

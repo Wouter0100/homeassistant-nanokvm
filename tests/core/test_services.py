@@ -300,6 +300,16 @@ def test_register_services_registers_complete_surface_with_response_contracts(
     assert all(service.schema is not None for service in registered.values())
 
 
+def test_register_services_excludes_out_of_scope_recording_surface(
+    hass_mock: MagicMock,
+) -> None:
+    """Screen-recording services are not part of the integration contract."""
+    registered = _capture_registered_services(hass_mock)
+
+    assert "start_hdmi_recording" not in registered
+    assert "stop_hdmi_recording" not in registered
+
+
 def test_register_services_is_idempotent_when_already_registered(
     hass_mock: MagicMock,
 ) -> None:
