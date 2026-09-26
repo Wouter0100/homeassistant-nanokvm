@@ -75,7 +75,11 @@ class NanoKVMConnectionTarget:
     @property
     def match_key(self) -> tuple[str, int | None, str]:
         """Return a normalized key for matching configured devices."""
-        return self.ssh_host, self.origin.port, _normalize_api_path(self.origin.path)
+        return (
+            self.ssh_host,
+            self.origin.explicit_port,
+            _normalize_api_path(self.origin.path),
+        )
 
     def api_connection_options(
         self,

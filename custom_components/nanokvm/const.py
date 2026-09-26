@@ -9,6 +9,8 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_USE_STATIC_HOST = "use_static_host"
 CONF_SSL_FINGERPRINT = "ssl_fingerprint"
+CONF_SSH_HOST_KEY = "ssh_host_key"
+CONF_TRUST_SSH_HOST_KEY = "trust_ssh_host_key"
 
 # Default values
 DEFAULT_USERNAME = "admin"

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from functools import cached_property
 
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, INTEGRATION_TITLE
@@ -33,8 +34,8 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
             "Created entity %s with unique_id: %s", unique_id_suffix, self._attr_unique_id
         )
 
-    @property
-    def device_info(self) -> dict[str, Any]:
+    @cached_property
+    def device_info(self) -> DeviceInfo:
         """Return device information about this NanoKVM device."""
         device_data = self.coordinator.device_info
         hostname = (
@@ -53,12 +54,12 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
         if image:
             sw_version += f" (Image: {image})"
 
-        return {
-            "identifiers": {(DOMAIN, device_data.device_key)},
-            "name": hostname,
-            "manufacturer": "Sipeed",
-            "model": f"{INTEGRATION_TITLE} {hw_version}",
-            "sw_version": sw_version,
-            "hw_version": hw_version,
-            "configuration_url": api_base_url_to_web_url(str(self.coordinator.client.url)),
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, device_data.device_key)},
+            name=hostname,
+            manufacturer="Sipeed",
+            model=f"{INTEGRATION_TITLE} {hw_version}",
+            sw_version=sw_version,
+            hw_version=hw_version,
+            configuration_url=api_base_url_to_web_url(str(self.coordinator.client.url)),
+        )

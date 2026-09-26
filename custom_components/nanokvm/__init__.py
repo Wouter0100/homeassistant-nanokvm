@@ -13,9 +13,15 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from nanokvm.client import NanoKVMAuthenticationFailure, NanoKVMClient, NanoKVMError
 
-from .const import CONF_SSL_FINGERPRINT, CONF_USE_STATIC_HOST, DOMAIN
+from .const import (
+    CONF_SSH_HOST_KEY,
+    CONF_SSL_FINGERPRINT,
+    CONF_USE_STATIC_HOST,
+    DOMAIN,
+)
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .services import async_register_services, async_unregister_services
+from .ssh_host_keys import async_write_known_hosts
 from .utils import api_connection_options
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,7 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryAuthFailed(
                 f"SSL certificate changed for NanoKVM at {host}"
             ) from err
-        except aiohttp.ClientConnectorError as err:
+        except aiohttp.ClientConnectionError as err:
             last_error = err
             if index < len(options) - 1:
                 continue
@@ -91,13 +97,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Failed to fetch initial device info: {last_error}"
         ) from last_error
 
+    coordinator_kwargs = {
+        "client": client,
+        "username": username,
+        "password": password,
+        "device_info": device_info,
+    }
+    approved_ssh_host_key = entry.data.get(CONF_SSH_HOST_KEY)
+    if approved_ssh_host_key:
+        known_hosts_path = await async_write_known_hosts(
+            hass,
+            entry.entry_id,
+            approved_ssh_host_key,
+        )
+        coordinator_kwargs["ssh_known_hosts"] = str(known_hosts_path)
+
     coordinator = NanoKVMDataUpdateCoordinator(
         hass,
         entry,
-        client=client,
-        username=username,
-        password=password,
-        device_info=device_info,
+        **coordinator_kwargs,
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -118,9 +136,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     domain_data = hass.data.get(DOMAIN, {})
-    coordinator = domain_data.pop(entry.entry_id, None)
-    if coordinator:
-        await coordinator.async_shutdown()
+    domain_data.pop(entry.entry_id, None)
 
     if not domain_data:
         async_unregister_services(hass)

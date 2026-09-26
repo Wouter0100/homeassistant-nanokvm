@@ -26,7 +26,23 @@ Recommended flow:
 
 ## Validation
 
-Before opening a PR, run:
+Install the test dependencies into your development environment:
+
+```bash
+python -m pip install -r requirements_test.txt
+```
+
+Before opening a PR, run the automated tests with branch coverage:
+
+```bash
+python -m coverage erase
+python -m coverage run -m pytest
+python -m coverage report
+```
+
+The coverage report enforces the repository's 98% combined line/branch floor.
+
+Then run the integration validation checks:
 
 1. `python -m ruff check custom_components/nanokvm`
 2. `python -m py_compile custom_components/nanokvm/*.py`
@@ -41,6 +57,7 @@ When behavior changes, also test the integration on a Home Assistant instance.
 
 CI must pass on the PR branch:
 
+- `.github/workflows/tests.yaml`
 - `.github/workflows/hacs.yaml`
 - `.github/workflows/hassfest.yaml`
 

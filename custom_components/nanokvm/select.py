@@ -336,12 +336,12 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
         """Return selectable options."""
         if self.entity_description.options_fn is not None:
             return self.entity_description.options_fn(self.coordinator)
-        return self.entity_description.options
+        return self.entity_description.options or []
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         if self.entity_description.select_option_fn is None:
             raise RuntimeError(f"Missing select handler for select: {self.entity_description.key}")
-        async with self.coordinator.client:
+        async with self.coordinator.async_client():
             await self.entity_description.select_option_fn(self.coordinator, option)
         await self.coordinator.async_request_refresh()

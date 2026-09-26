@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 import contextlib
 import datetime
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 import aiohttp
 from awesomeversion import AwesomeVersion, AwesomeVersionException
@@ -24,11 +25,31 @@ from nanokvm.client import (
     NanoKVMError,
     NanoKVMNotSupportedError,
 )
+from nanokvm.ssh_client import NanoKVMSSHConnectionError
 from nanokvm.models import (
     GetCdRomRsp,
+    GetGpioRsp,
+    GetHardwareRsp,
+    GetHdmiCaptureRsp,
+    GetHdmiPassthroughRsp,
+    GetHdmiStateRsp,
+    GetHostnameRsp,
+    GetHidModeRsp,
     GetInfoRsp,
+    GetLedStripRsp,
+    GetLcdTimeFormatRsp,
+    GetLowPowerRsp,
+    GetMdnsStateRsp,
     GetMountedImageRsp,
+    GetMouseJigglerRsp,
+    GetOLEDRsp,
+    GetSSHStateRsp,
+    GetStaticIPRsp,
+    GetTimeStatusRsp,
+    GetTailscaleStatusRsp,
     GetVersionRsp,
+    GetVirtualDeviceRsp,
+    GetWifiRsp,
     HidMode,
     HWVersion,
 )
@@ -51,12 +72,14 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_SSH_METRICS_TIMEOUT_SECONDS = 15
 _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
 _INVALID_FILE_CONTENT_CODE = -2
 _INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
+_ResponseT = TypeVar("_ResponseT")
 
 
 def _is_auth_failure(error: Exception) -> bool:
@@ -74,8 +97,47 @@ def _is_invalid_file_content_error(error: NanoKVMApiError) -> bool:
     )
 
 
+def _format_timeout_error(action: str) -> str:
+    """Return a stable timeout message without relying on an empty exception."""
+    return f"Timed out {action} after {_UPDATE_TIMEOUT_SECONDS} seconds"
+
+
 class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching NanoKVM data."""
+
+    config_entry: ConfigEntry
+    device_info: GetInfoRsp
+    hostname_info: GetHostnameRsp | None
+    hardware_info: GetHardwareRsp | None
+    gpio_info: GetGpioRsp | None
+    virtual_device_info: GetVirtualDeviceRsp | None
+    ssh_state: GetSSHStateRsp | None
+    mdns_state: GetMdnsStateRsp | None
+    hid_mode: GetHidModeRsp | None
+    oled_info: GetOLEDRsp | None
+    wifi_status: GetWifiRsp | None
+    application_version_info: GetVersionRsp | None
+    mounted_image: GetMountedImageRsp | None
+    cdrom_status: GetCdRomRsp | None
+    mouse_jiggler_state: GetMouseJigglerRsp | None
+    hdmi_state: GetHdmiStateRsp | None
+    hdmi_capture: GetHdmiCaptureRsp | None
+    hdmi_passthrough: GetHdmiPassthroughRsp | None
+    low_power: GetLowPowerRsp | None
+    led_strip: GetLedStripRsp | None
+    lcd_time_format: GetLcdTimeFormatRsp | None
+    time_status: GetTimeStatusRsp | None
+    static_ip: GetStaticIPRsp | None
+    swap_size: int | None
+    tailscale_status: GetTailscaleStatusRsp | None
+    uptime: datetime.datetime | None
+    cpu_temperature: float | None
+    memory_total: float | None
+    memory_used_percent: float | None
+    storage_total: float | None
+    storage_used_percent: float | None
+    watchdog_enabled: bool | None
+    ssh_metrics_collector: SSHMetricsCollector | None
 
     def __init__(
         self,
@@ -85,13 +147,14 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         username: str,
         password: str,
         device_info: GetInfoRsp,
+        ssh_known_hosts: str | None = None,
     ) -> None:
         """Initialize the coordinator."""
-        self.config_entry = config_entry
         self.client = client
         self.username = username
         self.password = password
         self.device_info = device_info
+        self.ssh_known_hosts = ssh_known_hosts
         self.hardware_info = None
         self.gpio_info = None
         self.virtual_device_info = None
@@ -125,17 +188,27 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.ssh_sensors_created = False
         self.ssh_switches_created = False
         self.ssh_metrics_collector = None
+        self._ssh_connection_warning_logged = False
         self.hostname_info = None
         self.watchdog_enabled = None
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
+        self._client_lock = asyncio.Lock()
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
+
+    @contextlib.asynccontextmanager
+    async def async_client(self) -> AsyncIterator[NanoKVMClient]:
+        """Yield the shared API client to one caller at a time."""
+        async with self._client_lock:
+            async with self.client as client:
+                yield client
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
@@ -182,51 +255,81 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             aiohttp.ClientConnectorCertificateError,
         ) as err:
             if self.client.url.scheme == "http" and await self._async_failover_client(err):
-                return await self._async_fetch_with_client()
+                return await self._async_fetch_with_error_mapping()
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
-        except aiohttp.ClientConnectorError as err:
+        except aiohttp.ClientConnectionError as err:
             if await self._async_failover_client(err):
-                return await self._async_fetch_with_client()
+                return await self._async_fetch_with_error_mapping()
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if _is_auth_failure(err):
                 await self._async_reauthenticate_client(err)
-                try:
-                    return await self._async_fetch_with_client()
-                except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as reauth_err:
-                    if _is_auth_failure(reauth_err):
-                        raise ConfigEntryAuthFailed(
-                            "Stored NanoKVM credentials are no longer valid"
-                        ) from reauth_err
-                    if isinstance(reauth_err, aiohttp.ClientResponseError):
-                        raise UpdateFailed(f"HTTP error with NanoKVM: {reauth_err}") from reauth_err
-                    raise UpdateFailed(f"Authentication failed: {reauth_err}") from reauth_err
+                return await self._async_fetch_with_error_mapping()
 
             if isinstance(err, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
             raise UpdateFailed(f"Authentication failed: {err}") from err
 
-        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except asyncio.TimeoutError:
+            raise UpdateFailed(
+                _format_timeout_error("communicating with NanoKVM")
+            ) from None
+        except (NanoKVMError, aiohttp.ClientError) as err:
+            raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+
+    async def _async_fetch_with_error_mapping(self) -> dict[str, Any]:
+        """Retry a fetch while mapping failures to Home Assistant exceptions."""
+        try:
+            return await self._async_fetch_with_client()
+        except (
+            aiohttp.ServerFingerprintMismatch,
+            aiohttp.ClientConnectorCertificateError,
+        ) as err:
+            raise ConfigEntryAuthFailed(
+                "SSL certificate changed for NanoKVM"
+            ) from err
+        except asyncio.TimeoutError:
+            raise UpdateFailed(
+                _format_timeout_error("communicating with NanoKVM")
+            ) from None
+        except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
+            if _is_auth_failure(err):
+                raise ConfigEntryAuthFailed(
+                    "Stored NanoKVM credentials are no longer valid"
+                ) from err
+            if isinstance(err, aiohttp.ClientResponseError):
+                raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
+            raise UpdateFailed(f"Authentication failed: {err}") from err
+        except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
     async def _async_fetch_with_client(self) -> dict[str, Any]:
         """Fetch data using the current client instance."""
-        async with self.client, asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
-            if not self.client.token:
-                await self.client.authenticate(self.username, self.password)
+        async with self.async_client() as client:
+            async with asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
+                if not client.token:
+                    await client.authenticate(self.username, self.password)
 
-            await self._async_fetch_core_data()
-            self._async_maybe_create_network_entities()
-            await self._async_fetch_storage_data()
-            self._async_maybe_create_media_entities()
-            await self._async_refresh_ssh_data()
-            self._async_schedule_app_version_refresh()
-            return self._build_update_data()
+                await self._async_fetch_core_data()
+                self._async_maybe_create_network_entities()
+                await self._async_fetch_storage_data()
+                self._async_maybe_create_media_entities()
+
+        await self._async_refresh_ssh_data()
+        self._async_schedule_app_version_refresh()
+        return self._build_update_data()
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""
+        async with self._client_lock:
+            await self._async_reauthenticate_client_locked(original_error)
+
+    async def _async_reauthenticate_client_locked(
+        self, original_error: Exception
+    ) -> None:
+        """Reauthenticate and replace the client while access is serialized."""
         options = api_connection_options(
             self.config_entry.data[CONF_HOST],
             self.config_entry.data.get(CONF_SSL_FINGERPRINT),
@@ -262,10 +365,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 raise ConfigEntryAuthFailed(
                     "SSL certificate changed for NanoKVM"
                 ) from auth_err
-            except aiohttp.ClientConnectorError as auth_err:
+            except aiohttp.ClientConnectionError as auth_err:
                 last_error = auth_err
                 continue
-            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as auth_err:
+            except asyncio.TimeoutError:
+                if isinstance(original_error, aiohttp.ClientResponseError):
+                    raise UpdateFailed(
+                        _format_timeout_error("reauthenticating with NanoKVM")
+                    ) from None
+                raise UpdateFailed(
+                    _format_timeout_error("authenticating with NanoKVM")
+                ) from None
+            except (NanoKVMError, aiohttp.ClientError) as auth_err:
                 if isinstance(original_error, aiohttp.ClientResponseError):
                     raise UpdateFailed(f"Reauthentication failed: {auth_err}") from auth_err
                 raise UpdateFailed(f"Authentication failed: {auth_err}") from auth_err
@@ -278,6 +389,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_failover_client(self, original_error: Exception) -> bool:
         """Switch to an alternate API transport after a connection failure."""
+        async with self._client_lock:
+            return await self._async_failover_client_locked(original_error)
+
+    async def _async_failover_client_locked(self, original_error: Exception) -> bool:
+        """Switch transports while access to the shared client is serialized."""
         options = api_connection_options(
             self.config_entry.data[CONF_HOST],
             self.config_entry.data.get(CONF_SSL_FINGERPRINT),
@@ -315,7 +431,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 ) from err
             except aiohttp.ClientConnectorError:
                 continue
-            except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            except asyncio.TimeoutError:
+                raise UpdateFailed(
+                    _format_timeout_error("checking alternate NanoKVM API transport")
+                ) from None
+            except (NanoKVMError, aiohttp.ClientError) as err:
                 raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
         _LOGGER.debug(
@@ -325,7 +445,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
         return False
 
-    async def _fetch_optional(self, endpoint: str, call):
+    async def _fetch_optional(
+        self,
+        endpoint: str,
+        call: Callable[[], Awaitable[_ResponseT]],
+    ) -> _ResponseT | None:
         """Run an optional endpoint call; return None when the device lacks it."""
         try:
             return await call()
@@ -349,7 +473,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("NanoKVM endpoint %s is not available on this device", endpoint)
             return None
 
-    async def _fetch_oled_info(self):
+    async def _fetch_oled_info(self) -> GetOLEDRsp | None:
         """Fetch OLED state, treating NanoKVM Pro's missing OLED file as unavailable."""
         try:
             return await self.client.get_oled_info()
@@ -497,7 +621,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
                 self.mounted_image = GetMountedImageRsp(
-                    file="", cdrom=False, read_only=False
+                    file="", cdrom=False, readOnly=False
                 )
 
             if self.supports_cdrom_endpoint:
@@ -514,7 +638,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.cdrom_status = None
         else:
             self.mounted_image = GetMountedImageRsp(
-                file="", cdrom=False, read_only=False
+                file="", cdrom=False, readOnly=False
             )
             self.cdrom_status = (
                 GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
@@ -523,7 +647,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""
         if self.ssh_state and self.ssh_state.enabled:
-            await self._async_update_ssh_data()
+            try:
+                async with asyncio.timeout(_SSH_METRICS_TIMEOUT_SECONDS):
+                    await self._async_update_ssh_data()
+            except TimeoutError:
+                _LOGGER.debug(
+                    "Timed out fetching optional SSH metrics after %s seconds",
+                    _SSH_METRICS_TIMEOUT_SECONDS,
+                )
+                await self._async_clear_ssh_data()
+            except asyncio.CancelledError:
+                await self._async_clear_ssh_data()
+                raise
         else:
             await self._async_clear_ssh_data()
 
@@ -624,7 +759,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         """Return the active SSH collector, creating it when needed."""
         if not self.ssh_metrics_collector:
             host = extract_ssh_host(self.config_entry.data[CONF_HOST])
-            self.ssh_metrics_collector = SSHMetricsCollector(host=host, password=self.password)
+            collector_kwargs = {"host": host, "password": self.password}
+            if self.ssh_known_hosts is not None:
+                collector_kwargs["known_hosts"] = self.ssh_known_hosts
+            self.ssh_metrics_collector = SSHMetricsCollector(**collector_kwargs)
         return self.ssh_metrics_collector
 
     def _async_maybe_create_media_entities(self) -> None:
@@ -661,6 +799,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             collector = await self.async_ensure_ssh_metrics_collector()
             metrics = await collector.collect(include_watchdog=self.supports_watchdog)
+            self._ssh_connection_warning_logged = False
             self.uptime = metrics.uptime
             self.cpu_temperature = metrics.cpu_temperature
             self.memory_total = metrics.memory_total
@@ -690,6 +829,25 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.ssh_switches_created = True
 
+        except NanoKVMSSHConnectionError as err:
+            if self._ssh_connection_warning_logged:
+                _LOGGER.debug(
+                    "SSH metrics remain unavailable for %s: %s",
+                    self.config_entry.data[CONF_HOST],
+                    err,
+                )
+            else:
+                _LOGGER.warning(
+                    "SSH metrics unavailable for %s because host-key verification or "
+                    "the SSH connection failed: %s. Reconfigure the NanoKVM entry "
+                    "after verifying the device fingerprint if its host key changed.",
+                    self.config_entry.data[CONF_HOST],
+                    err,
+                )
+                self._ssh_connection_warning_logged = True
+            self._clear_ssh_runtime_state()
+            if self.ssh_metrics_collector:
+                await self.ssh_metrics_collector.disconnect()
         except Exception as err:
             _LOGGER.debug("Failed to fetch data via SSH: %s", err)
             self._clear_ssh_runtime_state()
@@ -705,12 +863,16 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Release any background tasks and live connections owned by the coordinator."""
-        if self._app_version_fetch_task is not None:
-            self._app_version_fetch_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._app_version_fetch_task
-            self._app_version_fetch_task = None
-
-        if self.ssh_metrics_collector:
-            await self.ssh_metrics_collector.disconnect()
-            self.ssh_metrics_collector = None
+        try:
+            await super().async_shutdown()
+        finally:
+            try:
+                if self._app_version_fetch_task is not None:
+                    self._app_version_fetch_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._app_version_fetch_task
+                    self._app_version_fetch_task = None
+            finally:
+                if self.ssh_metrics_collector:
+                    await self.ssh_metrics_collector.disconnect()
+                    self.ssh_metrics_collector = None

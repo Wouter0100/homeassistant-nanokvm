@@ -17,14 +17,23 @@ from nanokvm.client import NanoKVMClient, NanoKVMAuthenticationFailure, NanoKVME
 from nanokvm.utils import async_fetch_remote_fingerprint
 
 from .const import (
+    CONF_SSH_HOST_KEY,
     CONF_SSL_FINGERPRINT,
+    CONF_TRUST_SSH_HOST_KEY,
     CONF_USE_STATIC_HOST,
     DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
     DOMAIN,
     INTEGRATION_TITLE,
 )
-from .utils import api_connection_options, https_probe_url, normalize_host, normalize_mdns
+from .ssh_host_keys import SSHHostKey, async_probe_host_key
+from .utils import (
+    api_connection_options,
+    extract_ssh_host,
+    https_probe_url,
+    normalize_host,
+    normalize_mdns,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,7 +64,7 @@ async def validate_input(data: dict[str, Any]) -> str:
                     last_error = err
                     continue
                 raise SSLCertificateChanged from err
-            except aiohttp.ClientConnectorError as err:
+            except aiohttp.ClientConnectionError as err:
                 last_error = err
                 if index < len(options) - 1:
                     continue
@@ -67,11 +76,52 @@ async def validate_input(data: dict[str, Any]) -> str:
     raise CannotConnect from last_error
 
 
+async def async_prepare_ssh_host_key(data: dict[str, Any]) -> SSHHostKey | None:
+    """Probe the SSH host key when the device reports SSH as enabled.
+
+    SSH is optional on NanoKVM devices.  A missing or unavailable SSH service
+    therefore leaves the integration usable while an enabled service gets a
+    strict, user-confirmed host key before metrics collection can authenticate.
+    """
+    if not hasattr(NanoKVMClient, "get_ssh_state"):
+        return None
+
+    options = api_connection_options(
+        data[CONF_HOST],
+        data.get(CONF_SSL_FINGERPRINT),
+    )
+    for option in options:
+        try:
+            async with NanoKVMClient(
+                option.base_url,
+                ssl_fingerprint=option.ssl_fingerprint,
+            ) as client:
+                await client.authenticate(data[CONF_USERNAME], data[CONF_PASSWORD])
+                ssh_state = await client.get_ssh_state()
+        except (asyncio.TimeoutError, aiohttp.ClientError, NanoKVMError):
+            continue
+
+        if not getattr(ssh_state, "enabled", False):
+            return None
+
+        try:
+            return await async_probe_host_key(extract_ssh_host(data[CONF_HOST]))
+        except Exception as err:
+            _LOGGER.warning(
+                "Unable to verify the SSH host key for NanoKVM at %s: %s",
+                data[CONF_HOST],
+                err,
+            )
+            return None
+
+    return None
+
+
 class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sipeed NanoKVM."""
 
     VERSION = 1
-    MINOR_VERSION = 2
+    MINOR_VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -79,13 +129,48 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self.data: dict[str, Any] = {}
         self._discovered_fingerprint: str | None = None
         self._ssl_return_step: str | None = None
+        self._pending_device_key: str | None = None
+        self._pending_ssh_host_key: SSHHostKey | None = None
+        self._reconfigure_entry: ConfigEntry | None = None
 
     def _get_reauth_entry(self) -> ConfigEntry:
         """Return the config entry currently undergoing reauthentication."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        entry_id = self.context.get("entry_id")
+        if entry_id is None:
+            raise RuntimeError("Reauth flow started without a NanoKVM entry ID")
+        entry = self.hass.config_entries.async_get_entry(entry_id)
         if entry is None:
             raise RuntimeError("Reauth flow started for a missing NanoKVM entry")
         return entry
+
+    def _get_reconfigure_entry(self) -> ConfigEntry:
+        """Return the config entry currently undergoing reconfiguration."""
+        entry_id = self.context.get("entry_id")
+        if entry_id is None:
+            raise RuntimeError("Reconfigure flow started without a NanoKVM entry ID")
+        entry = self.hass.config_entries.async_get_entry(entry_id)
+        if entry is None:
+            raise RuntimeError("Reconfigure flow started for a missing NanoKVM entry")
+        return entry
+
+    async def _async_add_device_with_ssh_key(
+        self,
+        device_key: str,
+        data: dict[str, Any],
+    ) -> ConfigFlowResult:
+        """Create a device entry after optional SSH host-key confirmation."""
+        self.data = data
+        if data.get(CONF_SSH_HOST_KEY):
+            return await self.add_device(device_key, data)
+
+        self._pending_device_key = device_key
+        host_key = await async_prepare_ssh_host_key(data)
+        if host_key is None:
+            self._pending_device_key = None
+            return await self.add_device(device_key, data)
+
+        self._pending_ssh_host_key = host_key
+        return await self.async_step_ssh_host_key()
 
     def _async_find_matching_entry(self, *unique_ids: str) -> ConfigEntry | None:
         """Find an existing config entry by any of the provided unique IDs."""
@@ -188,8 +273,12 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Ask the user to trust a new SSL certificate (first-time setup)."""
+        fingerprint = self._discovered_fingerprint
+        if fingerprint is None:
+            return self.async_abort(reason="cannot_connect")
+
         if user_input is not None:
-            self.data[CONF_SSL_FINGERPRINT] = self._discovered_fingerprint
+            self.data[CONF_SSL_FINGERPRINT] = fingerprint
             return_step = self._ssl_return_step
             self._ssl_return_step = None
 
@@ -204,7 +293,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="ssl_fingerprint",
             description_placeholders={
                 "host": self.data[CONF_HOST],
-                "fingerprint": self._format_fingerprint(self._discovered_fingerprint),
+                "fingerprint": self._format_fingerprint(fingerprint),
             },
         )
 
@@ -212,8 +301,12 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Ask the user to confirm a changed SSL certificate (reauth)."""
+        fingerprint = self._discovered_fingerprint
+        if fingerprint is None:
+            return self.async_abort(reason="cannot_connect")
+
         if user_input is not None:
-            self.data[CONF_SSL_FINGERPRINT] = self._discovered_fingerprint
+            self.data[CONF_SSL_FINGERPRINT] = fingerprint
             return await self.async_step_reauth_finish()
 
         old_fingerprint = self.data.get(CONF_SSL_FINGERPRINT) or ""
@@ -223,11 +316,67 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "host": self.data[CONF_HOST],
                 "old_fingerprint": self._format_fingerprint(old_fingerprint),
-                "new_fingerprint": self._format_fingerprint(
-                    self._discovered_fingerprint
-                ),
+                "new_fingerprint": self._format_fingerprint(fingerprint),
             },
         )
+
+    async def async_step_ssh_host_key(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask the user to trust the SSH host key before storing it."""
+        host_key = self._pending_ssh_host_key
+        if user_input is None:
+            if host_key is None:
+                return self.async_abort(reason="ssh_host_key_unavailable")
+            return self.async_show_form(
+                step_id="ssh_host_key",
+                data_schema=vol.Schema(
+                    {vol.Required(CONF_TRUST_SSH_HOST_KEY, default=False): bool}
+                ),
+                description_placeholders={
+                    "host": host_key.host,
+                    "fingerprint": host_key.fingerprint,
+                },
+            )
+
+        if not user_input.get(CONF_TRUST_SSH_HOST_KEY, False):
+            return self.async_abort(reason="ssh_host_key_not_trusted")
+        if host_key is None:
+            return self.async_abort(reason="ssh_host_key_unavailable")
+
+        self.data[CONF_SSH_HOST_KEY] = host_key.known_hosts_line
+        self._pending_ssh_host_key = None
+
+        if self._reconfigure_entry is not None:
+            entry = self._reconfigure_entry
+            self._reconfigure_entry = None
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={CONF_SSH_HOST_KEY: host_key.known_hosts_line},
+                reason="reconfigure_successful",
+            )
+
+        device_key = self._pending_device_key
+        self._pending_device_key = None
+        if device_key is None:
+            return self.async_abort(reason="ssh_host_key_unavailable")
+        return await self.add_device(device_key, self.data)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Replace the approved SSH host key for an existing entry."""
+        del user_input
+        entry = self._get_reconfigure_entry()
+        if self._reconfigure_entry is None:
+            self._reconfigure_entry = entry
+            self.data = dict(entry.data)
+            self._pending_ssh_host_key = await async_prepare_ssh_host_key(self.data)
+            if self._pending_ssh_host_key is None:
+                self._reconfigure_entry = None
+                return self.async_abort(reason="ssh_host_key_unavailable")
+
+        return await self.async_step_ssh_host_key()
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Start a reauthentication flow for an existing entry.
@@ -404,7 +553,10 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return await self.add_device(device_key, self.data)
+                return await self._async_add_device_with_ssh_key(
+                    device_key,
+                    self.data,
+                )
 
         return self.async_show_form(
             step_id="confirm",
@@ -441,7 +593,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return await self.add_device(device_key, data)
+                return await self._async_add_device_with_ssh_key(device_key, data)
 
         return self.async_show_form(
             step_id="auth",

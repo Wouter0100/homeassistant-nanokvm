@@ -8,19 +8,22 @@ from dataclasses import dataclass
 
 import aiohttp
 from aiohttp import BodyPartReader, MultipartReader
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityDescription,
+    CameraEntityFeature,
+)
 from homeassistant.components.camera.webrtc import WebRTCSendMessage
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from nanokvm.client import NanoKVMClient
 from webrtc_models import RTCIceCandidateInit
 
-from .camera_webrtc import NanoKVMWebRTCManager
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .const import CONF_SSL_FINGERPRINT, DOMAIN, ICON_HDMI
+from .const import DOMAIN, ICON_HDMI
 from .entity import NanoKVMEntity
+from .media.client import NanoKVMStreamClientProvider
+from .media.signaling import NanoKVMWebRTCManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ SNAPSHOT_TIMEOUT_SECONDS = 20
 
 
 @dataclass(frozen=True, kw_only=True)
-class NanoKVMCameraEntityDescription(EntityDescription):
+class NanoKVMCameraEntityDescription(CameraEntityDescription):
     """Describes NanoKVM camera entity."""
 
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
@@ -83,61 +86,25 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
         )
         Camera.__init__(self)
         self._attr_supported_features = CameraEntityFeature.STREAM
-        self._attr_is_streaming = True
+        self._attr_is_streaming = False
+        self._client_provider = NanoKVMStreamClientProvider(self.coordinator)
         self._webrtc = NanoKVMWebRTCManager(
             logger=_LOGGER,
             hass_provider=lambda: self.hass,
-            client_factory=self._create_stream_client,
-            authenticate_client=self._authenticate_stream_client,
+            client_factory=self._client_provider.create_client,
+            authenticate_client=self._client_provider.async_authenticate,
             is_pro_hardware=lambda: self.coordinator.is_pro_hardware,
+            session_state_callback=self._handle_streaming_state,
             login_timeout_seconds=LOGIN_TIMEOUT_SECONDS,
             websocket_heartbeat_seconds=WEBSOCKET_HEARTBEAT_SECONDS,
             max_pending_ice_candidates=MAX_PENDING_ICE_CANDIDATES,
         )
 
-    def _stream_credentials(self) -> tuple[str, str] | None:
-        """Return configured stream credentials."""
-        config_entry = self.coordinator.config_entry
-        if not config_entry or not config_entry.data:
-            return None
-
-        username = config_entry.data.get("username")
-        password = config_entry.data.get("password")
-
-        if not username or not password:
-            return None
-
-        return username, password
-
-    def _create_stream_client(self) -> NanoKVMClient | None:
-        """Create a NanoKVM client using the integration's resolved transport."""
-        config_entry = self.coordinator.config_entry
-        if not config_entry or not config_entry.data:
-            return None
-
-        active_url = str(self.coordinator.client.url)
-        ssl_fingerprint = (
-            config_entry.data.get(CONF_SSL_FINGERPRINT)
-            if self.coordinator.client.url.scheme == "https"
-            else None
-        )
-        return NanoKVMClient(
-            active_url,
-            token=self.coordinator.client.token,
-            ssl_fingerprint=ssl_fingerprint,
-        )
-
-    async def _authenticate_stream_client(self, client: NanoKVMClient) -> None:
-        """Authenticate a stream client using the configured credentials."""
-        credentials = self._stream_credentials()
-        if credentials is None:
-            raise RuntimeError("Missing NanoKVM stream credentials")
-
-        if client.token:
-            return
-
-        username, password = credentials
-        await client.authenticate(username, password)
+    @callback
+    def _handle_streaming_state(self, streaming: bool) -> None:
+        """Publish active WebRTC session state through the camera entity."""
+        self._attr_is_streaming = streaming
+        self.async_write_ha_state()
 
     async def _async_read_snapshot_frame(self) -> bytes | None:
         """Read one JPEG frame from NanoKVM MJPEG endpoint for snapshots."""
@@ -148,12 +115,12 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
             )
             return None
 
-        client = self._create_stream_client()
+        client = self._client_provider.create_client()
         if client is None:
             return None
 
         async with client:
-            await self._authenticate_stream_client(client)
+            await self._client_provider.async_authenticate(client)
             # Reuse NanoKVMClient's authenticated session and SSL config for MJPEG.
             async with client._request(
                 aiohttp.hdrs.METH_GET,

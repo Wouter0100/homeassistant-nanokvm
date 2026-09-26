@@ -25,10 +25,28 @@ class SSHMetricsSnapshot:
 class SSHMetricsCollector:
     """Collect metrics from NanoKVM over SSH."""
 
-    def __init__(self, host: str, password: str, username: str = "root") -> None:
+    def __init__(
+        self,
+        host: str,
+        password: str,
+        username: str = "root",
+        known_hosts: str | None = None,
+    ) -> None:
         """Initialize the SSH collector."""
         self._password = password
-        self._client = NanoKVMSSH(host=host, username=username)
+        if known_hosts is None:
+            self._client = NanoKVMSSH(
+                host=host,
+                username=username,
+                allow_unknown_host_key=False,
+            )
+        else:
+            self._client = NanoKVMSSH(
+                host=host,
+                username=username,
+                known_hosts=known_hosts,
+                allow_unknown_host_key=False,
+            )
 
     async def disconnect(self) -> None:
         """Disconnect the underlying SSH client if connected."""
