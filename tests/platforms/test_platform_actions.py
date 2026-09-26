@@ -41,6 +41,7 @@ def _coordinator(**overrides: object) -> SimpleNamespace:
         "application_version_info": SimpleNamespace(current="1.0.0", latest="1.1.0"),
         "async_client": MagicMock(side_effect=async_client),
         "async_ensure_ssh_metrics_collector": AsyncMock(),
+        "async_refresh": AsyncMock(),
         "async_request_refresh": AsyncMock(),
         "client": client,
         "device_info": SimpleNamespace(application="1.0.0", device_key="test-device"),
@@ -427,7 +428,7 @@ async def test_power_turn_off_presses_once_and_returns_when_gpio_turns_off() -> 
     coordinator.client.push_button = AsyncMock()
 
     async def refresh() -> None:
-        if coordinator.async_request_refresh.await_count == 2:
+        if coordinator.async_request_refresh.await_count == 1:
             coordinator.gpio_info.pwr = False
 
     coordinator.async_request_refresh.side_effect = refresh
@@ -442,7 +443,8 @@ async def test_power_turn_off_presses_once_and_returns_when_gpio_turns_off() -> 
     await entity.async_turn_off()
 
     coordinator.client.push_button.assert_awaited_once()
-    assert coordinator.async_request_refresh.await_count == 3
+    assert coordinator.async_refresh.await_count == 1
+    assert coordinator.async_request_refresh.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -461,7 +463,8 @@ async def test_power_turn_off_refreshes_after_timeout() -> None:
     await entity.async_turn_off()
 
     coordinator.client.push_button.assert_awaited_once()
-    assert coordinator.async_request_refresh.await_count == 2
+    assert coordinator.async_refresh.await_count == 1
+    assert coordinator.async_request_refresh.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -484,7 +487,8 @@ async def test_power_turn_off_sleeps_between_unsuccessful_polls(
     await entity.async_turn_off()
 
     sleep.assert_awaited_once_with(5)
-    assert coordinator.async_request_refresh.await_count == 3
+    assert coordinator.async_refresh.await_count == 1
+    assert coordinator.async_request_refresh.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -503,14 +507,17 @@ async def test_virtual_device_switch_toggles_only_when_state_differs() -> None:
     coordinator.client.update_virtual_device.assert_awaited_once_with(
         VirtualDevice.NETWORK
     )
-    assert coordinator.async_request_refresh.await_count == 2
+    assert coordinator.async_refresh.await_count == 1
+    assert coordinator.async_request_refresh.await_count == 1
 
+    coordinator.async_refresh.reset_mock()
     coordinator.async_request_refresh.reset_mock()
     coordinator.client.update_virtual_device.reset_mock()
     coordinator.virtual_device_info.network = True
     await entity.async_turn_on()
     coordinator.client.update_virtual_device.assert_not_awaited()
-    coordinator.async_request_refresh.assert_awaited_once_with()
+    coordinator.async_refresh.assert_awaited_once_with()
+    coordinator.async_request_refresh.assert_not_awaited()
 
     coordinator.virtual_device_info.network = True
     await entity.async_turn_off()

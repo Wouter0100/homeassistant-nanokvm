@@ -135,14 +135,20 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _get_reauth_entry(self) -> ConfigEntry:
         """Return the config entry currently undergoing reauthentication."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        entry_id = self.context.get("entry_id")
+        if entry_id is None:
+            raise RuntimeError("Reauth flow started without a NanoKVM entry ID")
+        entry = self.hass.config_entries.async_get_entry(entry_id)
         if entry is None:
             raise RuntimeError("Reauth flow started for a missing NanoKVM entry")
         return entry
 
     def _get_reconfigure_entry(self) -> ConfigEntry:
         """Return the config entry currently undergoing reconfiguration."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        entry_id = self.context.get("entry_id")
+        if entry_id is None:
+            raise RuntimeError("Reconfigure flow started without a NanoKVM entry ID")
+        entry = self.hass.config_entries.async_get_entry(entry_id)
         if entry is None:
             raise RuntimeError("Reconfigure flow started for a missing NanoKVM entry")
         return entry
@@ -267,8 +273,12 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Ask the user to trust a new SSL certificate (first-time setup)."""
+        fingerprint = self._discovered_fingerprint
+        if fingerprint is None:
+            return self.async_abort(reason="cannot_connect")
+
         if user_input is not None:
-            self.data[CONF_SSL_FINGERPRINT] = self._discovered_fingerprint
+            self.data[CONF_SSL_FINGERPRINT] = fingerprint
             return_step = self._ssl_return_step
             self._ssl_return_step = None
 
@@ -283,7 +293,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="ssl_fingerprint",
             description_placeholders={
                 "host": self.data[CONF_HOST],
-                "fingerprint": self._format_fingerprint(self._discovered_fingerprint),
+                "fingerprint": self._format_fingerprint(fingerprint),
             },
         )
 
@@ -291,8 +301,12 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Ask the user to confirm a changed SSL certificate (reauth)."""
+        fingerprint = self._discovered_fingerprint
+        if fingerprint is None:
+            return self.async_abort(reason="cannot_connect")
+
         if user_input is not None:
-            self.data[CONF_SSL_FINGERPRINT] = self._discovered_fingerprint
+            self.data[CONF_SSL_FINGERPRINT] = fingerprint
             return await self.async_step_reauth_finish()
 
         old_fingerprint = self.data.get(CONF_SSL_FINGERPRINT) or ""
@@ -302,9 +316,7 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "host": self.data[CONF_HOST],
                 "old_fingerprint": self._format_fingerprint(old_fingerprint),
-                "new_fingerprint": self._format_fingerprint(
-                    self._discovered_fingerprint
-                ),
+                "new_fingerprint": self._format_fingerprint(fingerprint),
             },
         )
 

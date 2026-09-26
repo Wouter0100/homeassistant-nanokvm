@@ -394,7 +394,7 @@ class NanoKVMWebRTCManager:
             status_code = self._status_code_from_signal_data(data, raw_data)
             status_name = (
                 _PRO_VIDEO_STATUS_NAMES.get(status_code)
-                if event == "video-status"
+                if event == "video-status" and status_code is not None
                 else None
             )
             self._logger.debug(
