@@ -24,10 +24,13 @@ from custom_components.nanokvm.config_flow import (
     InvalidAuth,
     NanoKVMConfigFlow,
     SSLCertificateChanged,
+    async_prepare_ssh_host_key,
     validate_input,
 )
 from custom_components.nanokvm.const import (
+    CONF_SSH_HOST_KEY,
     CONF_SSL_FINGERPRINT,
+    CONF_TRUST_SSH_HOST_KEY,
     CONF_USE_STATIC_HOST,
     DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
@@ -124,6 +127,84 @@ def _connection_data(host: str = "nanokvm.local") -> dict[str, Any]:
 def _fingerprint_error() -> aiohttp.ServerFingerprintMismatch:
     """Return a realistic pinned-certificate mismatch."""
     return aiohttp.ServerFingerprintMismatch(b"expected", b"received", "nano", 443)
+
+
+class SSHStateClient(ScriptedClient):
+    """Scripted client exposing the optional SSH-state endpoint."""
+
+    ssh_enabled = True
+
+    async def get_ssh_state(self) -> SimpleNamespace:
+        """Return the configured SSH service state."""
+        return SimpleNamespace(enabled=self.ssh_enabled)
+
+
+@pytest.mark.asyncio
+async def test_prepare_ssh_host_key_probes_enabled_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An enabled SSH service produces a key fingerprint for confirmation."""
+    SSHStateClient.scenarios = [ClientScenario()]
+    SSHStateClient.instances = []
+    monkeypatch.setattr(config_flow_module, "NanoKVMClient", SSHStateClient)
+    host_key = config_flow_module.SSHHostKey(
+        host="nanokvm.local",
+        known_hosts_line="nanokvm.local ssh-ed25519 ZHVtbXk=",
+        fingerprint="SHA256:trusted",
+    )
+    probe = AsyncMock(return_value=host_key)
+    monkeypatch.setattr(config_flow_module, "async_probe_host_key", probe)
+
+    result = await async_prepare_ssh_host_key(_connection_data())
+
+    assert result is host_key
+    probe.assert_awaited_once_with("nanokvm.local")
+
+
+@pytest.mark.asyncio
+async def test_prepare_ssh_host_key_skips_clients_without_ssh_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test doubles and older clients without SSH state remain optional."""
+    monkeypatch.setattr(config_flow_module, "NanoKVMClient", ScriptedClient)
+
+    assert await async_prepare_ssh_host_key(_connection_data()) is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_ssh_host_key_skips_disabled_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A disabled SSH service does not trigger a TCP host-key probe."""
+    SSHStateClient.scenarios = [ClientScenario()]
+    SSHStateClient.instances = []
+    SSHStateClient.ssh_enabled = False
+    monkeypatch.setattr(config_flow_module, "NanoKVMClient", SSHStateClient)
+    probe = AsyncMock()
+    monkeypatch.setattr(config_flow_module, "async_probe_host_key", probe)
+
+    try:
+        assert await async_prepare_ssh_host_key(_connection_data()) is None
+    finally:
+        SSHStateClient.ssh_enabled = True
+    probe.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_prepare_ssh_host_key_handles_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed optional probe leaves setup usable without trusting a key."""
+    SSHStateClient.scenarios = [ClientScenario()]
+    SSHStateClient.instances = []
+    monkeypatch.setattr(config_flow_module, "NanoKVMClient", SSHStateClient)
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_probe_host_key",
+        AsyncMock(side_effect=OSError("SSH unavailable")),
+    )
+
+    assert await async_prepare_ssh_host_key(_connection_data()) is None
 
 
 @pytest.mark.asyncio
@@ -273,6 +354,15 @@ def test_get_reauth_entry_rejects_missing_entry(flow: NanoKVMConfigFlow) -> None
         flow._get_reauth_entry()
 
 
+def test_get_reconfigure_entry_rejects_missing_entry(flow: NanoKVMConfigFlow) -> None:
+    """A stale reconfigure context fails explicitly."""
+    flow.context = {"source": "reconfigure", "entry_id": "missing"}
+    flow.hass.config_entries.async_get_entry.return_value = None
+
+    with pytest.raises(RuntimeError, match="missing NanoKVM entry"):
+        flow._get_reconfigure_entry()
+
+
 def test_find_matching_entry_returns_first_match_or_none(
     flow: NanoKVMConfigFlow,
 ) -> None:
@@ -376,6 +466,24 @@ async def test_add_device_sets_unique_id_defaults_and_creates_entry(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == INTEGRATION_TITLE
     assert result["data"][CONF_USE_STATIC_HOST] is bool(static_host)
+
+
+@pytest.mark.asyncio
+async def test_add_device_with_existing_ssh_key_skips_new_probe(
+    flow: NanoKVMConfigFlow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entries carrying a trusted key do not repeat the initial probe."""
+    data = _connection_data()
+    data[CONF_SSH_HOST_KEY] = "nanokvm.local ssh-ed25519 ZHVtbXk="
+    flow.add_device = AsyncMock(return_value={"created": True})
+    probe = AsyncMock(side_effect=AssertionError("probe should not run"))
+    monkeypatch.setattr(config_flow_module, "async_prepare_ssh_host_key", probe)
+
+    assert await flow._async_add_device_with_ssh_key("device-key", data) == {
+        "created": True
+    }
+    probe.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -650,6 +758,85 @@ async def test_confirm_step_success_adds_staged_device(
 
     assert await flow.async_step_confirm({}) == {"created": True}
     flow.add_device.assert_awaited_once_with("device-key", flow.data)
+
+
+@pytest.mark.asyncio
+async def test_confirm_step_requests_ssh_host_key_confirmation(
+    flow: NanoKVMConfigFlow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An enabled SSH service pauses setup for explicit host-key trust."""
+    flow.data = _connection_data()
+    monkeypatch.setattr(
+        config_flow_module,
+        "validate_input",
+        AsyncMock(return_value="device-key"),
+    )
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(
+            return_value=config_flow_module.SSHHostKey(
+                host="nanokvm.local",
+                known_hosts_line="nanokvm.local ssh-ed25519 ZHVtbXk=",
+                fingerprint="SHA256:trusted",
+            )
+        ),
+    )
+    flow.add_device = AsyncMock(return_value={"created": True})
+
+    result = await flow.async_step_confirm({})
+
+    assert result["step_id"] == "ssh_host_key"
+    assert result["description_placeholders"] == {
+        "host": "nanokvm.local",
+        "fingerprint": "SHA256:trusted",
+    }
+    assert CONF_TRUST_SSH_HOST_KEY in result["data_schema"]({})
+
+    assert await flow.async_step_ssh_host_key({CONF_TRUST_SSH_HOST_KEY: True}) == {
+        "created": True
+    }
+    flow.add_device.assert_awaited_once_with(
+        "device-key",
+        flow.data,
+    )
+    assert flow.data[CONF_SSH_HOST_KEY] == "nanokvm.local ssh-ed25519 ZHVtbXk="
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_step_replaces_ssh_host_key(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reconfigure exposes a new fingerprint and persists it after trust."""
+    flow.context = {"source": "reconfigure", "entry_id": config_entry_mock.entry_id}
+    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(
+            return_value=config_flow_module.SSHHostKey(
+                host="nanokvm.local",
+                known_hosts_line="nanokvm.local ssh-ed25519 bmV3LWtleQ==",
+                fingerprint="SHA256:new",
+            )
+        ),
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow.async_step_reconfigure()
+
+    assert result["step_id"] == "ssh_host_key"
+    assert await flow.async_step_ssh_host_key({CONF_TRUST_SSH_HOST_KEY: True}) == {
+        "updated": True
+    }
+    flow.async_update_reload_and_abort.assert_called_once_with(
+        config_entry_mock,
+        data_updates={CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 bmV3LWtleQ=="},
+        reason="reconfigure_successful",
+    )
 
 
 @pytest.mark.asyncio

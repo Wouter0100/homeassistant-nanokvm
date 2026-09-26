@@ -32,10 +32,20 @@
       "ssl_fingerprint_changed": {
         "title": "Le certificat SSL a changé",
         "description": "Le certificat SSL de l'appareil NanoKVM à l'adresse **{host}** a changé.\n\n**Empreinte précédente :**\n`{old_fingerprint}`\n\n**Nouvelle empreinte :**\n`{new_fingerprint}`\n\nCela peut signifier que l'appareil a généré un nouveau certificat, ou que quelque chose intercepte la connexion. Acceptez uniquement si vous vous attendez à ce changement."
+      },
+      "ssh_host_key": {
+        "title": "Vérifier la clé d'hôte SSH",
+        "description": "L'appareil NanoKVM à l'adresse **{host}** a présenté cette empreinte de clé d'hôte SSH :\n\n`{fingerprint}`\n\nNe faites confiance à cette clé que si elle correspond à une empreinte obtenue auprès d'une source de confiance.",
+        "data": {
+          "trust_ssh_host_key": "Je fais confiance à cette clé d'hôte SSH"
+        }
       }
     },
     "abort": {
-      "reauth_successful": "La réauthentification a réussi"
+      "reauth_successful": "La réauthentification a réussi",
+      "reconfigure_successful": "La vérification de la clé d'hôte SSH a été mise à jour",
+      "ssh_host_key_not_trusted": "La clé d'hôte SSH n'a pas été approuvée",
+      "ssh_host_key_unavailable": "Impossible de vérifier la clé d'hôte SSH"
     },
     "error": {
       "cannot_connect": "Échec de la connexion",

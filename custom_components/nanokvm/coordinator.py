@@ -25,6 +25,7 @@ from nanokvm.client import (
     NanoKVMError,
     NanoKVMNotSupportedError,
 )
+from nanokvm.ssh_client import NanoKVMSSHConnectionError
 from nanokvm.models import (
     GetCdRomRsp,
     GetInfoRsp,
@@ -94,12 +95,14 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         username: str,
         password: str,
         device_info: GetInfoRsp,
+        ssh_known_hosts: str | None = None,
     ) -> None:
         """Initialize the coordinator."""
         self.client = client
         self.username = username
         self.password = password
         self.device_info = device_info
+        self.ssh_known_hosts = ssh_known_hosts
         self.hardware_info = None
         self.gpio_info = None
         self.virtual_device_info = None
@@ -686,7 +689,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         """Return the active SSH collector, creating it when needed."""
         if not self.ssh_metrics_collector:
             host = extract_ssh_host(self.config_entry.data[CONF_HOST])
-            self.ssh_metrics_collector = SSHMetricsCollector(host=host, password=self.password)
+            collector_kwargs = {"host": host, "password": self.password}
+            if self.ssh_known_hosts is not None:
+                collector_kwargs["known_hosts"] = self.ssh_known_hosts
+            self.ssh_metrics_collector = SSHMetricsCollector(**collector_kwargs)
         return self.ssh_metrics_collector
 
     def _async_maybe_create_media_entities(self) -> None:
@@ -752,6 +758,17 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.ssh_switches_created = True
 
+        except NanoKVMSSHConnectionError as err:
+            _LOGGER.warning(
+                "SSH metrics unavailable for %s because host-key verification or "
+                "the SSH connection failed: %s. Reconfigure the NanoKVM entry "
+                "after verifying the device fingerprint if its host key changed.",
+                self.config_entry.data[CONF_HOST],
+                err,
+            )
+            self._clear_ssh_runtime_state()
+            if self.ssh_metrics_collector:
+                await self.ssh_metrics_collector.disconnect()
         except Exception as err:
             _LOGGER.debug("Failed to fetch data via SSH: %s", err)
             self._clear_ssh_runtime_state()

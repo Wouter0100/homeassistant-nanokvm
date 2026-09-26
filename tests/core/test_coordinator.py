@@ -54,6 +54,7 @@ from nanokvm.models import (
     MouseJigglerMode,
     TailscaleState,
 )
+from nanokvm.ssh_client import NanoKVMSSHConnectionError
 
 import custom_components.nanokvm.coordinator as coordinator_module
 from custom_components.nanokvm.const import (
@@ -957,6 +958,43 @@ async def test_ensure_ssh_collector_creates_once_and_reuses(
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
     factory.assert_called_once_with(host="nanokvm.local", password="password")
+
+
+async def test_ensure_ssh_collector_forwards_known_hosts_path(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An approved per-entry known-hosts path reaches the SSH collector."""
+    collector = object()
+    factory = MagicMock(return_value=collector)
+    monkeypatch.setattr(coordinator_module, "SSHMetricsCollector", factory)
+    coordinator.ssh_known_hosts = "/config/nanokvm/ssh/test-entry.known_hosts"
+
+    assert await coordinator.async_ensure_ssh_metrics_collector() is collector
+
+    factory.assert_called_once_with(
+        host="nanokvm.local",
+        password="password",
+        known_hosts="/config/nanokvm/ssh/test-entry.known_hosts",
+    )
+
+
+async def test_ssh_host_key_failure_disconnects_collector(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Host-key rejection clears metrics and disconnects the failed session."""
+    collector = MagicMock()
+    collector.collect = AsyncMock(
+        side_effect=NanoKVMSSHConnectionError("host key rejected")
+    )
+    collector.disconnect = AsyncMock()
+    coordinator.ssh_metrics_collector = collector
+
+    await coordinator._async_update_ssh_data()
+
+    collector.disconnect.assert_awaited_once_with()
+    assert "host-key verification" in caplog.text
 
 
 def test_media_entity_signal_is_sent_once_after_mount(

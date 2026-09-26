@@ -16,6 +16,7 @@ from yarl import URL
 import custom_components.nanokvm as nanokvm_module
 from custom_components.nanokvm import PLATFORMS, async_setup_entry, async_unload_entry
 from custom_components.nanokvm.const import (
+    CONF_SSH_HOST_KEY,
     CONF_SSL_FINGERPRINT,
     CONF_USE_STATIC_HOST,
     DOMAIN,
@@ -173,6 +174,32 @@ async def test_setup_entry_explicit_https_passes_stored_fingerprint(
     assert len(client_type.instances) == 1
     assert client_type.instances[0].url.scheme == "https"
     assert client_type.instances[0].ssl_fingerprint == "AABB"
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_persists_approved_ssh_host_key(
+    hass_mock: MagicMock,
+    config_entry_mock: MagicMock,
+    install_setup_client,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Setup writes the approved host key before the coordinator starts."""
+    _prepare_hass(hass_mock)
+    hass_mock.config = SimpleNamespace(path=MagicMock(return_value=str(tmp_path)))
+    config_entry_mock.data[CONF_SSH_HOST_KEY] = (
+        "nanokvm.local ssh-ed25519 ZHVtbXk="
+    )
+    install_setup_client(SetupScenario())
+    coordinator_factory, _ = _install_coordinator(monkeypatch)
+    monkeypatch.setattr(nanokvm_module, "async_register_services", MagicMock())
+
+    assert await async_setup_entry(hass_mock, config_entry_mock) is True
+
+    known_hosts = tmp_path / "nanokvm" / "ssh" / "test-entry.known_hosts"
+    assert known_hosts.read_text() == config_entry_mock.data[CONF_SSH_HOST_KEY] + "\n"
+    assert known_hosts.stat().st_mode & 0o777 == 0o600
+    assert coordinator_factory.call_args.kwargs["ssh_known_hosts"] == str(known_hosts)
 
 
 @pytest.mark.asyncio
