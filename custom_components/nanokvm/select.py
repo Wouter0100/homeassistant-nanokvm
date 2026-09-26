@@ -336,7 +336,7 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
         """Return selectable options."""
         if self.entity_description.options_fn is not None:
             return self.entity_description.options_fn(self.coordinator)
-        return self.entity_description.options
+        return self.entity_description.options or []
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""

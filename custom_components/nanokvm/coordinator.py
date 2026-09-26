@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 import contextlib
 import datetime
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 import aiohttp
 from awesomeversion import AwesomeVersion, AwesomeVersionException
@@ -28,9 +28,28 @@ from nanokvm.client import (
 from nanokvm.ssh_client import NanoKVMSSHConnectionError
 from nanokvm.models import (
     GetCdRomRsp,
+    GetGpioRsp,
+    GetHardwareRsp,
+    GetHdmiCaptureRsp,
+    GetHdmiPassthroughRsp,
+    GetHdmiStateRsp,
+    GetHostnameRsp,
+    GetHidModeRsp,
     GetInfoRsp,
+    GetLedStripRsp,
+    GetLcdTimeFormatRsp,
+    GetLowPowerRsp,
+    GetMdnsStateRsp,
     GetMountedImageRsp,
+    GetMouseJigglerRsp,
+    GetOLEDRsp,
+    GetSSHStateRsp,
+    GetStaticIPRsp,
+    GetTimeStatusRsp,
+    GetTailscaleStatusRsp,
     GetVersionRsp,
+    GetVirtualDeviceRsp,
+    GetWifiRsp,
     HidMode,
     HWVersion,
 )
@@ -60,6 +79,7 @@ _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
 _INVALID_FILE_CONTENT_CODE = -2
 _INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
+_ResponseT = TypeVar("_ResponseT")
 
 
 def _is_auth_failure(error: Exception) -> bool:
@@ -86,6 +106,38 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching NanoKVM data."""
 
     config_entry: ConfigEntry
+    device_info: GetInfoRsp
+    hostname_info: GetHostnameRsp | None
+    hardware_info: GetHardwareRsp | None
+    gpio_info: GetGpioRsp | None
+    virtual_device_info: GetVirtualDeviceRsp | None
+    ssh_state: GetSSHStateRsp | None
+    mdns_state: GetMdnsStateRsp | None
+    hid_mode: GetHidModeRsp | None
+    oled_info: GetOLEDRsp | None
+    wifi_status: GetWifiRsp | None
+    application_version_info: GetVersionRsp | None
+    mounted_image: GetMountedImageRsp | None
+    cdrom_status: GetCdRomRsp | None
+    mouse_jiggler_state: GetMouseJigglerRsp | None
+    hdmi_state: GetHdmiStateRsp | None
+    hdmi_capture: GetHdmiCaptureRsp | None
+    hdmi_passthrough: GetHdmiPassthroughRsp | None
+    low_power: GetLowPowerRsp | None
+    led_strip: GetLedStripRsp | None
+    lcd_time_format: GetLcdTimeFormatRsp | None
+    time_status: GetTimeStatusRsp | None
+    static_ip: GetStaticIPRsp | None
+    swap_size: int | None
+    tailscale_status: GetTailscaleStatusRsp | None
+    uptime: datetime.datetime | None
+    cpu_temperature: float | None
+    memory_total: float | None
+    memory_used_percent: float | None
+    storage_total: float | None
+    storage_used_percent: float | None
+    watchdog_enabled: bool | None
+    ssh_metrics_collector: SSHMetricsCollector | None
 
     def __init__(
         self,
@@ -393,7 +445,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
         return False
 
-    async def _fetch_optional(self, endpoint: str, call):
+    async def _fetch_optional(
+        self,
+        endpoint: str,
+        call: Callable[[], Awaitable[_ResponseT]],
+    ) -> _ResponseT | None:
         """Run an optional endpoint call; return None when the device lacks it."""
         try:
             return await call()
@@ -417,7 +473,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("NanoKVM endpoint %s is not available on this device", endpoint)
             return None
 
-    async def _fetch_oled_info(self):
+    async def _fetch_oled_info(self) -> GetOLEDRsp | None:
         """Fetch OLED state, treating NanoKVM Pro's missing OLED file as unavailable."""
         try:
             return await self.client.get_oled_info()
@@ -565,7 +621,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
                 self.mounted_image = GetMountedImageRsp(
-                    file="", cdrom=False, read_only=False
+                    file="", cdrom=False, readOnly=False
                 )
 
             if self.supports_cdrom_endpoint:
@@ -582,7 +638,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.cdrom_status = None
         else:
             self.mounted_image = GetMountedImageRsp(
-                file="", cdrom=False, read_only=False
+                file="", cdrom=False, readOnly=False
             )
             self.cdrom_status = (
                 GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None

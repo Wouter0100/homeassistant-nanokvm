@@ -8,11 +8,14 @@ from dataclasses import dataclass
 
 import aiohttp
 from aiohttp import BodyPartReader, MultipartReader
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityDescription,
+    CameraEntityFeature,
+)
 from homeassistant.components.camera.webrtc import WebRTCSendMessage
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from webrtc_models import RTCIceCandidateInit
 
@@ -31,7 +34,7 @@ SNAPSHOT_TIMEOUT_SECONDS = 20
 
 
 @dataclass(frozen=True, kw_only=True)
-class NanoKVMCameraEntityDescription(EntityDescription):
+class NanoKVMCameraEntityDescription(CameraEntityDescription):
     """Describes NanoKVM camera entity."""
 
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
