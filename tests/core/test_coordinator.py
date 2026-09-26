@@ -292,6 +292,47 @@ async def test_fetch_once_connection_failure_without_fallback_is_update_failed(
         await coordinator._async_fetch_once()
 
 
+@pytest.mark.parametrize(
+    ("retry_error", "expected_exception", "message"),
+    [
+        (
+            NanoKVMError("broken response"),
+            UpdateFailed,
+            "Error communicating with NanoKVM",
+        ),
+        (
+            aiohttp.ClientError("retry failed"),
+            UpdateFailed,
+            "Error communicating with NanoKVM",
+        ),
+        (
+            asyncio.TimeoutError(),
+            UpdateFailed,
+            "Timed out communicating with NanoKVM",
+        ),
+        (
+            _response_error(401),
+            ConfigEntryAuthFailed,
+            "Stored NanoKVM credentials are no longer valid",
+        ),
+    ],
+)
+async def test_fetch_once_maps_error_after_transport_failover(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    retry_error: Exception,
+    expected_exception: type[Exception],
+    message: str,
+) -> None:
+    """A retry after transport failover preserves Home Assistant error types."""
+    coordinator._async_fetch_with_client = AsyncMock(
+        side_effect=[aiohttp.ServerDisconnectedError("gone"), retry_error]
+    )
+    coordinator._async_failover_client = AsyncMock(return_value=True)
+
+    with pytest.raises(expected_exception, match=message):
+        await coordinator._async_fetch_once()
+
+
 async def test_fetch_once_reauthenticates_then_returns_data(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:
@@ -314,6 +355,16 @@ async def test_fetch_once_reauthenticates_then_returns_data(
             "Stored NanoKVM credentials are no longer valid",
         ),
         (_response_error(500), UpdateFailed, "HTTP error with NanoKVM"),
+        (
+            NanoKVMError("broken response"),
+            UpdateFailed,
+            "Error communicating with NanoKVM",
+        ),
+        (
+            aiohttp.ClientError("retry failed"),
+            UpdateFailed,
+            "Error communicating with NanoKVM",
+        ),
     ],
 )
 async def test_fetch_once_maps_error_after_reauthentication(
@@ -1112,6 +1163,56 @@ async def test_failed_ssh_update_clears_metrics_and_disconnects(
     assert coordinator.uptime is None
     assert coordinator.watchdog_enabled is None
     collector.disconnect.assert_awaited_once_with()
+
+
+async def test_ssh_connection_warning_logs_once_per_failure_streak(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Repeated SSH failures warn once and a successful poll resets the streak."""
+    metrics = SSHMetricsSnapshot(
+        uptime=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        cpu_temperature=51.5,
+        memory_total=512.0,
+        memory_used_percent=25.0,
+        storage_total=1024.0,
+        storage_used_percent=50.0,
+        watchdog_enabled=False,
+    )
+    connection_error = NanoKVMSSHConnectionError("host key rejected")
+    collector = SimpleNamespace(
+        collect=AsyncMock(
+            side_effect=[connection_error, connection_error, metrics, connection_error]
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator.ssh_metrics_collector = collector
+    coordinator.ssh_sensors_created = True
+    coordinator.ssh_switches_created = True
+
+    with caplog.at_level("DEBUG", logger=coordinator_module.__name__):
+        await coordinator._async_update_ssh_data()
+        await coordinator._async_update_ssh_data()
+        await coordinator._async_update_ssh_data()
+        assert coordinator._ssh_connection_warning_logged is False
+        await coordinator._async_update_ssh_data()
+
+    warning_records = [
+        record
+        for record in caplog.records
+        if record.name == coordinator_module.__name__
+        and record.levelname == "WARNING"
+        and record.getMessage().startswith("SSH metrics unavailable")
+    ]
+    debug_records = [
+        record
+        for record in caplog.records
+        if record.name == coordinator_module.__name__
+        and record.levelname == "DEBUG"
+        and record.getMessage().startswith("SSH metrics remain unavailable")
+    ]
+    assert len(warning_records) == 2
+    assert len(debug_records) == 1
 
 
 async def test_disabled_ssh_refresh_clears_collector_and_metrics(

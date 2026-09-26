@@ -414,7 +414,7 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
     async def _async_current_power_state(self) -> bool | None:
         """Refresh and return the current power state when available."""
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh()
         if self.coordinator.gpio_info is None:
             return None
         return bool(self.coordinator.gpio_info.pwr)
@@ -467,7 +467,7 @@ class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
                 f"Missing virtual device type for switch: {self.entity_description.key}"
             )
 
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh()
         if self.is_on == enabled:
             return
 

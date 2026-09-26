@@ -42,6 +42,8 @@
       }
     },
     "abort": {
+      "already_configured": "Cet appareil NanoKVM est déjà configuré",
+      "cannot_connect": "Échec de la connexion à l’appareil NanoKVM",
       "reauth_successful": "La réauthentification a réussi",
       "reconfigure_successful": "La vérification de la clé d'hôte SSH a été mise à jour",
       "ssh_host_key_not_trusted": "La clé d'hôte SSH n'a pas été approuvée",

@@ -136,6 +136,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.ssh_sensors_created = False
         self.ssh_switches_created = False
         self.ssh_metrics_collector = None
+        self._ssh_connection_warning_logged = False
         self.hostname_info = None
         self.watchdog_enabled = None
         self._app_version_last_fetched: datetime.datetime | None = None
@@ -202,31 +203,18 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             aiohttp.ClientConnectorCertificateError,
         ) as err:
             if self.client.url.scheme == "http" and await self._async_failover_client(err):
-                return await self._async_fetch_with_client()
+                return await self._async_fetch_with_error_mapping()
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
         except aiohttp.ClientConnectionError as err:
             if await self._async_failover_client(err):
-                return await self._async_fetch_with_client()
+                return await self._async_fetch_with_error_mapping()
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if _is_auth_failure(err):
                 await self._async_reauthenticate_client(err)
-                try:
-                    return await self._async_fetch_with_client()
-                except asyncio.TimeoutError:
-                    raise UpdateFailed(
-                        _format_timeout_error("communicating with NanoKVM")
-                    ) from None
-                except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as reauth_err:
-                    if _is_auth_failure(reauth_err):
-                        raise ConfigEntryAuthFailed(
-                            "Stored NanoKVM credentials are no longer valid"
-                        ) from reauth_err
-                    if isinstance(reauth_err, aiohttp.ClientResponseError):
-                        raise UpdateFailed(f"HTTP error with NanoKVM: {reauth_err}") from reauth_err
-                    raise UpdateFailed(f"Authentication failed: {reauth_err}") from reauth_err
+                return await self._async_fetch_with_error_mapping()
 
             if isinstance(err, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
@@ -236,6 +224,32 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(
                 _format_timeout_error("communicating with NanoKVM")
             ) from None
+        except (NanoKVMError, aiohttp.ClientError) as err:
+            raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
+
+    async def _async_fetch_with_error_mapping(self) -> dict[str, Any]:
+        """Retry a fetch while mapping failures to Home Assistant exceptions."""
+        try:
+            return await self._async_fetch_with_client()
+        except (
+            aiohttp.ServerFingerprintMismatch,
+            aiohttp.ClientConnectorCertificateError,
+        ) as err:
+            raise ConfigEntryAuthFailed(
+                "SSL certificate changed for NanoKVM"
+            ) from err
+        except asyncio.TimeoutError:
+            raise UpdateFailed(
+                _format_timeout_error("communicating with NanoKVM")
+            ) from None
+        except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
+            if _is_auth_failure(err):
+                raise ConfigEntryAuthFailed(
+                    "Stored NanoKVM credentials are no longer valid"
+                ) from err
+            if isinstance(err, aiohttp.ClientResponseError):
+                raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
+            raise UpdateFailed(f"Authentication failed: {err}") from err
         except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
@@ -729,6 +743,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             collector = await self.async_ensure_ssh_metrics_collector()
             metrics = await collector.collect(include_watchdog=self.supports_watchdog)
+            self._ssh_connection_warning_logged = False
             self.uptime = metrics.uptime
             self.cpu_temperature = metrics.cpu_temperature
             self.memory_total = metrics.memory_total
@@ -759,13 +774,21 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 self.ssh_switches_created = True
 
         except NanoKVMSSHConnectionError as err:
-            _LOGGER.warning(
-                "SSH metrics unavailable for %s because host-key verification or "
-                "the SSH connection failed: %s. Reconfigure the NanoKVM entry "
-                "after verifying the device fingerprint if its host key changed.",
-                self.config_entry.data[CONF_HOST],
-                err,
-            )
+            if self._ssh_connection_warning_logged:
+                _LOGGER.debug(
+                    "SSH metrics remain unavailable for %s: %s",
+                    self.config_entry.data[CONF_HOST],
+                    err,
+                )
+            else:
+                _LOGGER.warning(
+                    "SSH metrics unavailable for %s because host-key verification or "
+                    "the SSH connection failed: %s. Reconfigure the NanoKVM entry "
+                    "after verifying the device fingerprint if its host key changed.",
+                    self.config_entry.data[CONF_HOST],
+                    err,
+                )
+                self._ssh_connection_warning_logged = True
             self._clear_ssh_runtime_state()
             if self.ssh_metrics_collector:
                 await self.ssh_metrics_collector.disconnect()

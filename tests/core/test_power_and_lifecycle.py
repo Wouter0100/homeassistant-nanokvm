@@ -53,6 +53,7 @@ def _power_switch(power_state: bool) -> tuple[NanoKVMPowerSwitch, SimpleNamespac
 
     coordinator = SimpleNamespace(
         async_client=MagicMock(side_effect=async_client),
+        async_refresh=AsyncMock(),
         async_request_refresh=AsyncMock(),
         client=client,
         device_info=SimpleNamespace(device_key="test-device"),
@@ -67,7 +68,8 @@ def test_power_turn_on_is_noop_when_already_on() -> None:
 
     asyncio.run(switch.async_turn_on())
 
-    coordinator.async_request_refresh.assert_awaited_once_with()
+    coordinator.async_refresh.assert_awaited_once_with()
+    coordinator.async_request_refresh.assert_not_awaited()
     assert coordinator.client.enter_count == 0
     coordinator.client.push_button.assert_not_awaited()
 
@@ -78,7 +80,8 @@ def test_power_turn_off_is_noop_when_already_off() -> None:
 
     asyncio.run(switch.async_turn_off())
 
-    coordinator.async_request_refresh.assert_awaited_once_with()
+    coordinator.async_refresh.assert_awaited_once_with()
+    coordinator.async_request_refresh.assert_not_awaited()
     assert coordinator.client.enter_count == 0
     coordinator.client.push_button.assert_not_awaited()
 
