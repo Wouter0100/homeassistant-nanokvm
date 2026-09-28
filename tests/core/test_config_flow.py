@@ -480,6 +480,34 @@ async def test_existing_entry_rebinds_ssh_key_after_verified_host_change(
 
 
 @pytest.mark.asyncio
+async def test_existing_entry_with_unchanged_ssh_host_keeps_trusted_key(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+) -> None:
+    """An unchanged discovery host does not need a new SSH trust prompt."""
+    config_entry_mock.unique_id = "device-key"
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "nanokvm.local",
+            CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 ZHVtbXk=",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "nanokvm.local",
+        device_key="device-key",
+    )
+
+    assert result == {"updated": True}
+    assert flow.async_update_reload_and_abort.call_args.kwargs["data_updates"] == {
+        CONF_HOST: "nanokvm.local",
+    }
+
+
+@pytest.mark.asyncio
 async def test_existing_entry_repairs_stale_ssh_key_alias_for_current_host(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
@@ -555,6 +583,39 @@ async def test_existing_entry_requests_new_ssh_trust_without_identity_match(
         reason="reconfigure_successful",
         unique_id="new-device-key",
     )
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_with_invalid_ssh_key_aborts_if_probe_fails(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid stored key is not reused when a replacement cannot be probed."""
+    config_entry_mock.unique_id = "legacy.local."
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "legacy.local",
+            CONF_SSH_HOST_KEY: "invalid-known-hosts-line",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    prepare_key = AsyncMock(return_value=None)
+    monkeypatch.setattr(config_flow_module, "async_prepare_ssh_host_key", prepare_key)
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "192.0.2.20",
+        device_key="new-device-key",
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "ssh_host_key_unavailable"
+    prepare_key.assert_awaited_once_with(
+        config_entry_mock.data | {CONF_HOST: "192.0.2.20"}
+    )
+    flow.async_update_reload_and_abort.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -986,6 +1047,30 @@ async def test_reconfigure_step_replaces_ssh_host_key(
         data_updates={CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 bmV3LWtleQ=="},
         reason="reconfigure_successful",
     )
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_aborts_when_ssh_host_key_probe_fails(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reconfiguration stops without replacing trust if the key probe fails."""
+    flow.context = {"source": "reconfigure", "entry_id": config_entry_mock.entry_id}
+    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(return_value=None),
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow.async_step_reconfigure()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "ssh_host_key_unavailable"
+    assert flow._reconfigure_entry is None
+    flow.async_update_reload_and_abort.assert_not_called()
 
 
 @pytest.mark.asyncio
