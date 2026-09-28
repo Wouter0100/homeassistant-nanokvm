@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from pathlib import Path
+import socket
 from unittest.mock import MagicMock
 
 import pytest
@@ -43,8 +44,8 @@ class _FakeTransport:
 
     instances: list[_FakeTransport] = []
 
-    def __init__(self, address: tuple[str, int]) -> None:
-        self.address = address
+    def __init__(self, sock: socket.socket) -> None:
+        self.sock = sock
         self.start_client_calls = 0
         self.closed = False
         self.key = _FakeKey(raw=b"known-public-key")
@@ -62,6 +63,7 @@ class _FakeTransport:
     def close(self) -> None:
         """Record transport cleanup."""
         self.closed = True
+        self.sock.close()
 
 
 @pytest.mark.asyncio
@@ -70,6 +72,9 @@ async def test_probe_host_key_only_performs_unauthenticated_handshake(
 ) -> None:
     """The probe reads a key without exposing a password-authentication path."""
     _FakeTransport.instances = []
+    sock = MagicMock(spec=socket.socket)
+    create_connection = MagicMock(return_value=sock)
+    monkeypatch.setattr(host_keys_module.socket, "create_connection", create_connection)
     monkeypatch.setattr(host_keys_module.paramiko, "Transport", _FakeTransport)
 
     result = await async_probe_host_key("nanokvm.local")
@@ -85,9 +90,14 @@ async def test_probe_host_key_only_performs_unauthenticated_handshake(
         ),
     )
     transport = _FakeTransport.instances[0]
-    assert transport.address == ("nanokvm.local", 22)
+    create_connection.assert_called_once_with(
+        ("nanokvm.local", 22),
+        timeout=10,
+    )
+    assert transport.sock is sock
     assert transport.start_client_calls == 1
     assert transport.closed is True
+    sock.close.assert_called_once()
 
 
 def test_known_hosts_path_is_scoped_to_the_entry(tmp_path: Path) -> None:
@@ -96,6 +106,56 @@ def test_known_hosts_path_is_scoped_to_the_entry(tmp_path: Path) -> None:
         tmp_path / "nanokvm" / "ssh" / "entry-1.known_hosts"
     )
     assert known_hosts_path(tmp_path, "entry-2") != known_hosts_path(tmp_path, "entry-1")
+
+
+def test_retarget_known_hosts_line_keeps_the_trusted_key() -> None:
+    """Updating a verified device host changes only its known-hosts alias."""
+    assert (
+        host_keys_module.retarget_known_hosts_line(
+            "nanokvm.local ssh-ed25519 ZHVtbXk=",
+            "192.0.2.20",
+        )
+        == "192.0.2.20 ssh-ed25519 ZHVtbXk="
+    )
+
+
+@pytest.mark.parametrize(
+    ("known_hosts_line", "host"),
+    [
+        ("", "192.0.2.20"),
+        ("nanokvm.local ssh-ed25519", "192.0.2.20"),
+        ("nanokvm.local ssh-ed25519 key", "bad host"),
+    ],
+)
+def test_retarget_known_hosts_line_rejects_invalid_entries(
+    known_hosts_line: str,
+    host: str,
+) -> None:
+    """Malformed trust material cannot be silently rebound to another host."""
+    with pytest.raises(ValueError, match="single entry"):
+        host_keys_module.retarget_known_hosts_line(known_hosts_line, host)
+
+
+def test_probe_host_key_closes_socket_if_transport_initialization_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed Paramiko initialization does not leak its TCP socket."""
+    sock = MagicMock(spec=socket.socket)
+    monkeypatch.setattr(
+        host_keys_module.socket,
+        "create_connection",
+        MagicMock(return_value=sock),
+    )
+    monkeypatch.setattr(
+        host_keys_module.paramiko,
+        "Transport",
+        MagicMock(side_effect=RuntimeError("transport failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="transport failed"):
+        host_keys_module._probe_host_key("nanokvm.local")
+
+    sock.close.assert_called_once()
 
 
 def test_write_known_hosts_rejects_multiline_content(tmp_path: Path) -> None:

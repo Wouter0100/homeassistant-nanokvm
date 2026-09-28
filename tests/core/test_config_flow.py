@@ -376,14 +376,15 @@ def test_find_matching_entry_returns_first_match_or_none(
     assert flow._async_find_matching_entry("absent") is None
 
 
-def test_existing_static_entry_aborts_without_host_update(
+@pytest.mark.asyncio
+async def test_existing_static_entry_aborts_without_host_update(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
 ) -> None:
     """Static entries ignore discovery and keep their configured host."""
     config_entry_mock.data[CONF_USE_STATIC_HOST] = True
 
-    result = flow._async_handle_existing_entry(
+    result = await flow._async_handle_existing_entry(
         config_entry_mock,
         "192.0.2.20",
         device_key="new-key",
@@ -401,7 +402,8 @@ def test_existing_static_entry_aborts_without_host_update(
         ("legacy.local.", None, None),
     ],
 )
-def test_existing_dynamic_entry_updates_discovered_host_and_optional_unique_id(
+@pytest.mark.asyncio
+async def test_existing_dynamic_entry_updates_discovered_host_and_optional_unique_id(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
     current_unique_id: str,
@@ -413,7 +415,7 @@ def test_existing_dynamic_entry_updates_discovered_host_and_optional_unique_id(
     config_entry_mock.data[CONF_USE_STATIC_HOST] = False
     flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
 
-    result = flow._async_handle_existing_entry(
+    result = await flow._async_handle_existing_entry(
         config_entry_mock,
         "192.0.2.20",
         device_key=device_key,
@@ -427,7 +429,8 @@ def test_existing_dynamic_entry_updates_discovered_host_and_optional_unique_id(
     assert kwargs.get("unique_id") == expected_unique_id
 
 
-def test_existing_dynamic_entry_with_unchanged_host_still_uses_reload_helper(
+@pytest.mark.asyncio
+async def test_existing_dynamic_entry_with_unchanged_host_still_uses_reload_helper(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
 ) -> None:
@@ -435,7 +438,7 @@ def test_existing_dynamic_entry_with_unchanged_host_still_uses_reload_helper(
     config_entry_mock.data[CONF_USE_STATIC_HOST] = False
     flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
 
-    assert flow._async_handle_existing_entry(
+    assert await flow._async_handle_existing_entry(
         config_entry_mock,
         config_entry_mock.data[CONF_HOST],
     ) == {"updated": True}
@@ -445,6 +448,174 @@ def test_existing_dynamic_entry_with_unchanged_host_still_uses_reload_helper(
         ]
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_rebinds_ssh_key_after_verified_host_change(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+) -> None:
+    """A matching device identity allows a trusted key to follow its host."""
+    config_entry_mock.unique_id = "device-key"
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "nanokvm.local",
+            CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 ZHVtbXk=",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "192.0.2.20",
+        device_key="device-key",
+    )
+
+    assert result == {"updated": True}
+    assert flow.async_update_reload_and_abort.call_args.kwargs["data_updates"] == {
+        CONF_HOST: "192.0.2.20",
+        CONF_SSH_HOST_KEY: "192.0.2.20 ssh-ed25519 ZHVtbXk=",
+    }
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_with_unchanged_ssh_host_keeps_trusted_key(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+) -> None:
+    """An unchanged discovery host does not need a new SSH trust prompt."""
+    config_entry_mock.unique_id = "device-key"
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "nanokvm.local",
+            CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 ZHVtbXk=",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "nanokvm.local",
+        device_key="device-key",
+    )
+
+    assert result == {"updated": True}
+    assert flow.async_update_reload_and_abort.call_args.kwargs["data_updates"] == {
+        CONF_HOST: "nanokvm.local",
+    }
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_repairs_stale_ssh_key_alias_for_current_host(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+) -> None:
+    """A prior host update cannot leave the approved key pinned to an old alias."""
+    config_entry_mock.unique_id = "device-key"
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "192.0.2.20",
+            CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 ZHVtbXk=",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "192.0.2.20",
+        device_key="device-key",
+    )
+
+    assert result == {"updated": True}
+    assert flow.async_update_reload_and_abort.call_args.kwargs["data_updates"] == {
+        CONF_HOST: "192.0.2.20",
+        CONF_SSH_HOST_KEY: "192.0.2.20 ssh-ed25519 ZHVtbXk=",
+    }
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_requests_new_ssh_trust_without_identity_match(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host change without a matching device key requires fresh user trust."""
+    config_entry_mock.unique_id = "legacy.local."
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "legacy.local",
+            CONF_PASSWORD: DEFAULT_PASSWORD,
+            CONF_SSH_HOST_KEY: "legacy.local ssh-ed25519 b2xkLWtleQ==",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    fresh_key = config_flow_module.SSHHostKey(
+        host="192.0.2.20",
+        known_hosts_line="192.0.2.20 ssh-ed25519 bmV3LWtleQ==",
+        fingerprint="SHA256:new",
+    )
+    prepare_key = AsyncMock(return_value=fresh_key)
+    monkeypatch.setattr(config_flow_module, "async_prepare_ssh_host_key", prepare_key)
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "192.0.2.20",
+        device_key="new-device-key",
+    )
+
+    assert result["step_id"] == "ssh_host_key"
+    prepare_key.assert_awaited_once_with(
+        config_entry_mock.data | {CONF_HOST: "192.0.2.20"}
+    )
+    assert await flow.async_step_ssh_host_key({CONF_TRUST_SSH_HOST_KEY: True}) == {
+        "updated": True
+    }
+    flow.async_update_reload_and_abort.assert_called_once_with(
+        config_entry_mock,
+        data_updates={
+            CONF_HOST: "192.0.2.20",
+            CONF_SSH_HOST_KEY: "192.0.2.20 ssh-ed25519 bmV3LWtleQ==",
+        },
+        reason="reconfigure_successful",
+        unique_id="new-device-key",
+    )
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_with_invalid_ssh_key_aborts_if_probe_fails(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid stored key is not reused when a replacement cannot be probed."""
+    config_entry_mock.unique_id = "legacy.local."
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "legacy.local",
+            CONF_SSH_HOST_KEY: "invalid-known-hosts-line",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    prepare_key = AsyncMock(return_value=None)
+    monkeypatch.setattr(config_flow_module, "async_prepare_ssh_host_key", prepare_key)
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow._async_handle_existing_entry(
+        config_entry_mock,
+        "192.0.2.20",
+        device_key="new-device-key",
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "ssh_host_key_unavailable"
+    prepare_key.assert_awaited_once_with(
+        config_entry_mock.data | {CONF_HOST: "192.0.2.20"}
+    )
+    flow.async_update_reload_and_abort.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -755,6 +926,11 @@ async def test_confirm_step_success_adds_staged_device(
         "validate_input",
         AsyncMock(return_value="device-key"),
     )
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(return_value=None),
+    )
     flow.add_device = AsyncMock(return_value={"created": True})
 
     assert await flow.async_step_confirm({}) == {"created": True}
@@ -806,6 +982,39 @@ async def test_confirm_step_requests_ssh_host_key_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_declining_ssh_host_key_trust_still_adds_initial_device(
+    flow: NanoKVMConfigFlow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declining optional SSH trust keeps the non-SSH integration usable."""
+    flow.data = _connection_data()
+    monkeypatch.setattr(
+        config_flow_module,
+        "validate_input",
+        AsyncMock(return_value="device-key"),
+    )
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(
+            return_value=config_flow_module.SSHHostKey(
+                host="nanokvm.local",
+                known_hosts_line="nanokvm.local ssh-ed25519 ZHVtbXk=",
+                fingerprint="SHA256:trusted",
+            )
+        ),
+    )
+    flow.add_device = AsyncMock(return_value={"created": True})
+
+    assert (await flow.async_step_confirm({}))["step_id"] == "ssh_host_key"
+    assert await flow.async_step_ssh_host_key({CONF_TRUST_SSH_HOST_KEY: False}) == {
+        "created": True
+    }
+    flow.add_device.assert_awaited_once_with("device-key", flow.data)
+    assert CONF_SSH_HOST_KEY not in flow.data
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_step_replaces_ssh_host_key(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
@@ -838,6 +1047,51 @@ async def test_reconfigure_step_replaces_ssh_host_key(
         data_updates={CONF_SSH_HOST_KEY: "nanokvm.local ssh-ed25519 bmV3LWtleQ=="},
         reason="reconfigure_successful",
     )
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_aborts_when_ssh_host_key_probe_fails(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reconfiguration stops without replacing trust if the key probe fails."""
+    flow.context = {"source": "reconfigure", "entry_id": config_entry_mock.entry_id}
+    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(return_value=None),
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow.async_step_reconfigure()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "ssh_host_key_unavailable"
+    assert flow._reconfigure_entry is None
+    flow.async_update_reload_and_abort.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_declining_ssh_host_key_during_reconfigure_keeps_entry_unchanged(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+) -> None:
+    """Declining a replacement host key leaves reconfiguration untouched."""
+    flow._reconfigure_entry = config_entry_mock
+    flow._pending_ssh_host_key = config_flow_module.SSHHostKey(
+        host="nanokvm.local",
+        known_hosts_line="nanokvm.local ssh-ed25519 bmV3LWtleQ==",
+        fingerprint="SHA256:new",
+    )
+    flow.async_update_reload_and_abort = MagicMock(return_value={"updated": True})
+
+    result = await flow.async_step_ssh_host_key({CONF_TRUST_SSH_HOST_KEY: False})
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "ssh_host_key_not_trusted"
+    flow.async_update_reload_and_abort.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -882,6 +1136,11 @@ async def test_auth_step_success_merges_credentials_and_adds_device(
         config_flow_module,
         "validate_input",
         AsyncMock(return_value="device-key"),
+    )
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_prepare_ssh_host_key",
+        AsyncMock(return_value=None),
     )
     flow.add_device = AsyncMock(return_value={"created": True})
     credentials = {CONF_USERNAME: "operator", CONF_PASSWORD: "secret"}
@@ -1179,7 +1438,7 @@ async def test_zeroconf_verified_existing_entry_updates_by_device_key(
     install_client(ClientScenario(device_key="verified-key"))
     flow.async_set_unique_id = AsyncMock()
     flow._async_find_matching_entry = MagicMock(return_value=config_entry_mock)
-    flow._async_handle_existing_entry = MagicMock(return_value={"updated": True})
+    flow._async_handle_existing_entry = AsyncMock(return_value={"updated": True})
 
     assert await flow.async_step_zeroconf(_discovery_info()) == {"updated": True}
     flow._async_find_matching_entry.assert_called_once_with(
@@ -1298,7 +1557,7 @@ async def test_zeroconf_pro_reuses_saved_pin_and_credentials_for_same_host(
     flow._abort_if_unique_id_configured = MagicMock()
     flow._async_current_entries = MagicMock(return_value=[entry])
     flow._async_find_matching_entry = MagicMock(return_value=entry)
-    flow._async_handle_existing_entry = MagicMock(return_value={"updated": True})
+    flow._async_handle_existing_entry = AsyncMock(return_value={"updated": True})
 
     result = await flow.async_step_zeroconf(
         _discovery_info("_ssh._tcp.local.")
