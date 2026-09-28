@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import socket
 import tempfile
 
 from homeassistant.core import HomeAssistant
@@ -35,10 +36,25 @@ def _fingerprint(key: paramiko.PKey) -> str:
     return f"SHA256:{encoded}"
 
 
+def retarget_known_hosts_line(known_hosts_line: str, host: str) -> str:
+    """Return a trusted key line scoped to a newly verified host."""
+    fields = known_hosts_line.split()
+    if len(fields) != 3 or not host or any(char.isspace() for char in host):
+        raise ValueError("known_hosts_line and host must each be a single entry")
+
+    _, key_type, key_data = fields
+    return f"{host} {key_type} {key_data}"
+
+
 def _probe_host_key(host: str, port: int = _SSH_PORT) -> SSHHostKey:
     """Perform an SSH handshake without authenticating a user."""
-    transport = paramiko.Transport((host, port))
+    sock = socket.create_connection(
+        (host, port),
+        timeout=_SSH_PROBE_TIMEOUT_SECONDS,
+    )
+    transport: paramiko.Transport | None = None
     try:
+        transport = paramiko.Transport(sock)
         transport.start_client(timeout=_SSH_PROBE_TIMEOUT_SECONDS)
         key = transport.get_remote_server_key()
         return SSHHostKey(
@@ -47,7 +63,10 @@ def _probe_host_key(host: str, port: int = _SSH_PORT) -> SSHHostKey:
             fingerprint=_fingerprint(key),
         )
     finally:
-        transport.close()
+        if transport is not None:
+            transport.close()
+        else:
+            sock.close()
 
 
 async def async_probe_host_key(host: str, port: int = _SSH_PORT) -> SSHHostKey:
