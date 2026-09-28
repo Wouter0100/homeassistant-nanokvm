@@ -34,6 +34,7 @@ from custom_components.nanokvm.const import (
     CONF_USE_STATIC_HOST,
     DEFAULT_PASSWORD,
     DEFAULT_USERNAME,
+    DOMAIN,
     INTEGRATION_TITLE,
 )
 
@@ -1150,9 +1151,13 @@ async def test_finish_reauth_updates_credentials_pin_and_identity_when_needed(
     )
 
 
-def _discovery_info() -> SimpleNamespace:
+def _discovery_info(service_type: str = "_workstation._tcp.local.") -> SimpleNamespace:
     """Return a zeroconf discovery payload."""
-    return SimpleNamespace(hostname="nano-kvm.local.", host="192.0.2.20")
+    return SimpleNamespace(
+        hostname="nano-kvm.local.",
+        host="192.0.2.20",
+        type=service_type,
+    )
 
 
 def _prepare_new_discovery(flow: NanoKVMConfigFlow) -> None:
@@ -1221,6 +1226,129 @@ async def test_zeroconf_auth_required_uses_legacy_identity_for_new_flow(
     assert await flow.async_step_zeroconf(_discovery_info()) == {"user": True}
     flow.async_set_unique_id.assert_awaited_once_with("nano-kvm.local.")
     flow.async_step_user.assert_awaited_once_with(user_input={CONF_HOST: "192.0.2.20"})
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_self_signed_certificate_prompts_and_resumes_with_pin(
+    flow: NanoKVMConfigFlow,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pro discovery confirms its certificate before sending credentials."""
+    client_type = install_client(
+        ClientScenario(
+            auth_error=aiohttp.ClientConnectorCertificateError(
+                None, OSError("self-signed certificate")
+            )
+        ),
+        ClientScenario(device_key="verified-key"),
+    )
+    flow.context = {"source": "zeroconf"}
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+    flow._async_find_matching_entry = MagicMock(return_value=None)
+    flow.async_step_confirm = AsyncMock(return_value={"confirm": True})
+    fetch = AsyncMock(return_value="AABB")
+    monkeypatch.setattr(config_flow_module, "async_fetch_remote_fingerprint", fetch)
+
+    result = await flow.async_step_zeroconf(
+        _discovery_info("_ssh._tcp.local.")
+    )
+
+    assert result["step_id"] == "ssl_fingerprint"
+    assert result["description_placeholders"] == {
+        "host": "https://192.0.2.20",
+        "fingerprint": "AA:BB",
+    }
+    assert flow._ssl_return_step == "zeroconf"
+    fetch.assert_awaited_once_with("https://192.0.2.20/api/")
+    assert client_type.instances[0].url == URL("https://192.0.2.20/api/")
+    assert client_type.instances[0].ssl_fingerprint is None
+
+    resumed = await flow.async_step_ssl_fingerprint({})
+
+    assert resumed == {"confirm": True}
+    assert client_type.instances[1].url == URL("https://192.0.2.20/api/")
+    assert client_type.instances[1].ssl_fingerprint == "AABB"
+    assert client_type.instances[1].authenticate_calls == [
+        (DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    ]
+    assert flow.data[CONF_SSL_FINGERPRINT] == "AABB"
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_pro_reuses_saved_pin_and_credentials_for_same_host(
+    flow: NanoKVMConfigFlow,
+    install_client,
+) -> None:
+    """An already-configured Pro reuses its trusted TLS identity on discovery."""
+    client_type = install_client(ClientScenario(device_key="verified-key"))
+    entry = SimpleNamespace(
+        unique_id="verified-key",
+        data={
+            CONF_HOST: "192.0.2.20",
+            CONF_USERNAME: "operator",
+            CONF_PASSWORD: "saved-password",
+            CONF_SSL_FINGERPRINT: "AABB",
+            CONF_USE_STATIC_HOST: False,
+        },
+    )
+    flow.context = {"source": "zeroconf"}
+    flow.async_set_unique_id = AsyncMock()
+    flow._abort_if_unique_id_configured = MagicMock()
+    flow._async_current_entries = MagicMock(return_value=[entry])
+    flow._async_find_matching_entry = MagicMock(return_value=entry)
+    flow._async_handle_existing_entry = MagicMock(return_value={"updated": True})
+
+    result = await flow.async_step_zeroconf(
+        _discovery_info("_ssh._tcp.local.")
+    )
+
+    assert result == {"updated": True}
+    assert client_type.instances[0].url == URL("https://192.0.2.20/api/")
+    assert client_type.instances[0].ssl_fingerprint == "AABB"
+    assert client_type.instances[0].authenticate_calls == [("operator", "saved-password")]
+    flow._async_handle_existing_entry.assert_called_once_with(
+        entry,
+        "192.0.2.20",
+        device_key="verified-key",
+    )
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_duplicate_pro_certificate_prompt_is_aborted(
+    flow: NanoKVMConfigFlow,
+    hass_mock: MagicMock,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeated SSH announcement does not create another certificate flow."""
+    install_client(
+        ClientScenario(
+            auth_error=aiohttp.ClientConnectorCertificateError(
+                None, OSError("self-signed certificate")
+            )
+        )
+    )
+    flow.context = {"source": "zeroconf"}
+    flow.handler = DOMAIN
+    flow.flow_id = "duplicate-flow"
+    hass_mock.config_entries.flow.async_progress_by_handler.return_value = [
+        {
+            "flow_id": "first-flow",
+            "context": {
+                "source": "zeroconf",
+                "unique_id": "nano-kvm.local.",
+            },
+        }
+    ]
+    fetch = AsyncMock(return_value="AABB")
+    monkeypatch.setattr(config_flow_module, "async_fetch_remote_fingerprint", fetch)
+
+    with pytest.raises(AbortFlow, match="already_in_progress"):
+        await flow.async_step_zeroconf(_discovery_info("_ssh._tcp.local."))
+
+    fetch.assert_not_awaited()
 
 
 @pytest.mark.asyncio
