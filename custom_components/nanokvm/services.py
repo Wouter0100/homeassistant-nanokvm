@@ -14,7 +14,7 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.const import ATTR_DEVICE_ID
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
 from nanokvm.client import NanoKVMClient
@@ -159,7 +159,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         domain_data = hass.data.get(DOMAIN, {})
         coordinators = list(domain_data.values())
         if not coordinators:
-            raise HomeAssistantError("No NanoKVM devices are configured")
+            raise ServiceValidationError("No NanoKVM devices are configured")
 
         device_id = call.data.get(ATTR_DEVICE_ID)
         if device_id is not None:
@@ -167,7 +167,7 @@ def async_register_services(hass: HomeAssistant) -> None:
             for entry_id in device.config_entries if device is not None else ():
                 if entry_id in domain_data:
                     return domain_data[entry_id]
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 f"No NanoKVM device is configured for device {device_id}"
             )
 
@@ -175,7 +175,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         if requested_host is None:
             if len(coordinators) == 1:
                 return coordinators[0]
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 "Multiple NanoKVM devices are configured; specify the device_id or host field to target one device"
             )
 
@@ -196,10 +196,10 @@ def async_register_services(hass: HomeAssistant) -> None:
         ]
 
         if not matches:
-            raise HomeAssistantError(f"No NanoKVM device is configured for host {requested_host}")
+            raise ServiceValidationError(f"No NanoKVM device is configured for host {requested_host}")
 
         if len(matches) > 1:
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 f"Multiple NanoKVM devices match host {requested_host}; fix the duplicate configuration before calling this service"
             )
 

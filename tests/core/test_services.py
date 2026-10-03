@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
 from homeassistant.core import ServiceCall, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from nanokvm.models import (
     DownloadStatus,
     GetCustomEdidListRsp,
@@ -428,9 +428,10 @@ async def test_target_resolution_by_device_id(
     first.client.reboot_system.assert_not_awaited()
     selected.client.reboot_system.assert_awaited_once_with()
 
+    # A bad target is the caller's mistake, not an internal failure.
     for device_id in ("foreign", "missing"):
         with pytest.raises(
-            HomeAssistantError,
+            ServiceValidationError,
             match=f"No NanoKVM device is configured for device {device_id}",
         ):
             await _call_service(
