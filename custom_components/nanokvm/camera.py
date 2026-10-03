@@ -116,9 +116,6 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
             return None
 
         client = self._client_provider.create_client()
-        if client is None:
-            return None
-
         async with client:
             await self._client_provider.async_authenticate(client)
             # Reuse NanoKVMClient's authenticated session and SSL config for MJPEG.

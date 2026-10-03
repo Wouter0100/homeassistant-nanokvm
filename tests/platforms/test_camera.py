@@ -185,17 +185,6 @@ async def test_snapshot_is_suppressed_on_pro_hardware(
     create_client.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_snapshot_returns_none_when_client_cannot_be_created(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Snapshot reads stop cleanly when the config cannot build a client."""
-    entity, _manager, _manager_factory = _camera(monkeypatch)
-    entity._client_provider.create_client.return_value = None
-
-    assert await entity._async_read_snapshot_frame() is None
-
-
 class _RequestContext(AbstractAsyncContextManager[object]):
     """Async request context used by snapshot reader tests."""
 

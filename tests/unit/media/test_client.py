@@ -5,64 +5,44 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 import pytest
 from yarl import URL
 
 from custom_components.nanokvm.const import CONF_SSL_FINGERPRINT
+import custom_components.nanokvm.media.client as client_module
 from custom_components.nanokvm.media.client import NanoKVMStreamClientProvider
 
 
-def _coordinator(*, data: dict[str, object] | None = None) -> SimpleNamespace:
+def _coordinator(url: str = "https://nanokvm.local/api/") -> SimpleNamespace:
     return SimpleNamespace(
-        config_entry=SimpleNamespace(
-            data=data
-            if data is not None
-            else {CONF_USERNAME: "admin", CONF_PASSWORD: "password"}
-        ),
-        client=SimpleNamespace(
-            url=URL("https://nanokvm.local/api/"), token="existing-token"
-        ),
+        config_entry=SimpleNamespace(data={CONF_SSL_FINGERPRINT: "AABB"}),
+        client=SimpleNamespace(url=URL(url), token="existing-token"),
+        username="admin",
+        password="password",
     )
 
 
-def test_provider_creates_client_from_active_transport_and_token() -> None:
+@pytest.mark.parametrize(
+    ("url", "ssl_fingerprint"),
+    [
+        ("https://nanokvm.local/api/", "AABB"),
+        ("http://nanokvm.local/api/", None),
+    ],
+)
+def test_provider_creates_client_from_active_transport_and_token(
+    monkeypatch: pytest.MonkeyPatch, url: str, ssl_fingerprint: str | None
+) -> None:
     """Stream clients follow coordinator failover and stored TLS identity."""
-    coordinator = _coordinator()
-    coordinator.config_entry.data[CONF_SSL_FINGERPRINT] = "AABB"
     client_factory = MagicMock(return_value=object())
-    provider = NanoKVMStreamClientProvider(
-        coordinator, client_factory=client_factory
-    )
+    monkeypatch.setattr(client_module, "NanoKVMClient", client_factory)
+    provider = NanoKVMStreamClientProvider(_coordinator(url))
 
-    client = provider.create_client()
-
-    assert client is client_factory.return_value
+    assert provider.create_client() is client_factory.return_value
     client_factory.assert_called_once_with(
-        "https://nanokvm.local/api/",
+        url,
         token="existing-token",
-        ssl_fingerprint="AABB",
+        ssl_fingerprint=ssl_fingerprint,
     )
-
-
-def test_provider_requires_complete_entry_data() -> None:
-    """An unloaded or incomplete config entry cannot create a stream client."""
-    provider = NanoKVMStreamClientProvider(_coordinator(data={}))
-
-    assert provider.create_client() is None
-
-
-@pytest.mark.asyncio
-async def test_provider_rejects_incomplete_credentials() -> None:
-    """A partially configured entry cannot authenticate a media client."""
-    provider = NanoKVMStreamClientProvider(
-        _coordinator(data={CONF_USERNAME: "admin"})
-    )
-
-    with pytest.raises(RuntimeError, match="Missing NanoKVM stream credentials"):
-        await provider.async_authenticate(
-            SimpleNamespace(token=None, authenticate=AsyncMock())
-        )
 
 
 @pytest.mark.asyncio
@@ -77,13 +57,3 @@ async def test_provider_reuses_token_or_authenticates_with_entry_credentials() -
 
     authenticated.authenticate.assert_not_awaited()
     unauthenticated.authenticate.assert_awaited_once_with("admin", "password")
-
-
-@pytest.mark.asyncio
-async def test_provider_rejects_authentication_without_credentials() -> None:
-    """Authentication errors explain missing config-entry ownership."""
-    provider = NanoKVMStreamClientProvider(_coordinator(data={}))
-    client = SimpleNamespace(token=None, authenticate=AsyncMock())
-
-    with pytest.raises(RuntimeError, match="Missing NanoKVM stream credentials"):
-        await provider.async_authenticate(client)
