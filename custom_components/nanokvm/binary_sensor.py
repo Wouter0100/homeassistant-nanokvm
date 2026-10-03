@@ -199,14 +199,9 @@ async def async_setup_entry(
         if description.should_create_fn(coordinator)
     )
 
-    media_entities_added = False
-
     @callback
     def async_add_media_binary_sensors() -> None:
         """Add media-backed binary sensors when media is first mounted."""
-        nonlocal media_entities_added
-        if media_entities_added:
-            return
         if not _has_mounted_image(coordinator):
             return
 
@@ -218,7 +213,6 @@ async def async_setup_entry(
             for description in MEDIA_BINARY_SENSORS
             if description.should_create_fn(coordinator)
         )
-        media_entities_added = True
 
     if _has_mounted_image(coordinator):
         async_add_media_binary_sensors()

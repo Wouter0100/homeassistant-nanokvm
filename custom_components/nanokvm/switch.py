@@ -323,15 +323,9 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    ssh_entities_added = False
-
     @callback
     def async_add_ssh_switches() -> None:
         """Add SSH-backed switches when they become available."""
-        nonlocal ssh_entities_added
-        if ssh_entities_added:
-            return
-
         entities = [
             NanoKVMWatchdogSwitch(
                 coordinator=coordinator,
@@ -344,7 +338,6 @@ async def async_setup_entry(
             return
 
         async_add_entities(entities)
-        ssh_entities_added = True
         coordinator.ssh_switches_created = True
 
     if any(description.available_fn(coordinator) for description in SSH_SWITCHES):

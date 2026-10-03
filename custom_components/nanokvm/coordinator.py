@@ -214,6 +214,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.memory_used_percent = None
         self.storage_total = None
         self.storage_used_percent = None
+        # Each creation signal is sent once; the platforms rely on that.
         self.media_entities_created = False
         self.network_entities_created: set[str] = set()
         self.ssh_sensors_created = False
