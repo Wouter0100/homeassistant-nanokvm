@@ -217,6 +217,17 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
 
 
+def test_refresh_requests_use_a_short_cooldown(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """A second action shortly after the first still refreshes state promptly."""
+    debouncer = coordinator._debounced_refresh
+
+    assert debouncer.cooldown == coordinator_module._REQUEST_REFRESH_COOLDOWN_SECONDS
+    assert debouncer.cooldown < 5
+    assert debouncer.immediate is True
+
+
 def test_device_registry_follows_firmware_and_hostname_changes(
     coordinator: NanoKVMDataUpdateCoordinator,
     monkeypatch: pytest.MonkeyPatch,

@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -87,6 +88,7 @@ _LOGGER = logging.getLogger(__name__)
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_REQUEST_REFRESH_COOLDOWN_SECONDS = 1.5
 _SSH_METRICS_TIMEOUT_SECONDS = 15
 _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
@@ -233,6 +235,14 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             config_entry=config_entry,
             name=DOMAIN,
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            # The default ten second cooldown left entities stale after the
+            # second of two actions; polling this device is cheap.
+            request_refresh_debouncer=Debouncer(
+                hass,
+                _LOGGER,
+                cooldown=_REQUEST_REFRESH_COOLDOWN_SECONDS,
+                immediate=True,
+            ),
         )
 
     @contextlib.asynccontextmanager
