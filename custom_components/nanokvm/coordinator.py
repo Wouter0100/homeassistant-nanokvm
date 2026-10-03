@@ -267,19 +267,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             use_static_host,
         )
 
-        for attempt in range(1, _UPDATE_MAX_ATTEMPTS + 1):
+        for attempt in range(1, _UPDATE_MAX_ATTEMPTS):
             try:
                 return await self._async_fetch_once()
             except UpdateFailed as err:
-                if attempt == _UPDATE_MAX_ATTEMPTS:
-                    _LOGGER.debug(
-                        "NanoKVM update attempt %s/%s failed for %s: %s. No retries left.",
-                        attempt,
-                        _UPDATE_MAX_ATTEMPTS,
-                        current_host,
-                        err,
-                    )
-                    raise
                 _LOGGER.debug(
                     "NanoKVM update attempt %s/%s failed for %s: %s. Retrying in %ss",
                     attempt,
@@ -290,7 +281,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 await asyncio.sleep(_UPDATE_RETRY_DELAY_SECONDS)
 
-        raise UpdateFailed("NanoKVM update failed after retry attempts")
+        return await self._async_fetch_once()
 
     async def _async_restore_preferred_host(self) -> bool:
         """Restore a verified preferred Pro endpoint without requiring another mDNS event."""
@@ -758,8 +749,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             self.application_version_info = await self._async_fetch_app_version()
             self._app_version_last_fetched = datetime.datetime.now(datetime.UTC)
             self.async_update_listeners()
-        except asyncio.CancelledError:
-            raise
         finally:
             self._app_version_fetch_task = None
 

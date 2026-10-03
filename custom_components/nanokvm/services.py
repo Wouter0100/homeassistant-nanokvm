@@ -131,15 +131,6 @@ SET_LED_STRIP_SCHEMA = vol.Schema(
     }
 )
 
-def _model_to_response(value: Any) -> ServiceResponse:
-    """Convert pydantic responses into Home Assistant service responses."""
-    if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
-    if isinstance(value, dict):
-        return value
-    return {"value": value}
-
-
 def _ensure_pro(coordinator: NanoKVMDataUpdateCoordinator, service_name: str) -> None:
     """Raise when a service requires NanoKVM Pro hardware."""
     if not coordinator.is_pro_hardware:
@@ -241,7 +232,7 @@ def async_register_services(hass: HomeAssistant) -> None:
 
         try:
             async with coordinator.async_client() as client:
-                return _model_to_response(await handler(coordinator, client, host))
+                return (await handler(coordinator, client, host)).model_dump(mode="json")
         except HomeAssistantError:
             raise
         except Exception as err:

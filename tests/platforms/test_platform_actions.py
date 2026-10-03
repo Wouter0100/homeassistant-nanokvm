@@ -206,7 +206,6 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
     ("key", "option", "method", "expected_args", "expected_kwargs"),
     [
         ("hid_mode", "hid_only", "set_hid_mode", (HidMode.HID_ONLY,), {}),
-        ("hid_mode", "unknown", "set_hid_mode", (HidMode.NORMAL,), {}),
         (
             "mouse_jiggler_mode",
             "relative_mode",
@@ -222,9 +221,7 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
             {},
         ),
         ("oled_sleep_timeout", "30_sec", "set_oled_sleep", (30,), {}),
-        ("oled_sleep_timeout", "unknown", "set_oled_sleep", (0,), {}),
         ("swap_size", "128_mb", "set_swap_size", (128,), {}),
-        ("swap_size", "unknown", "set_swap_size", (0,), {}),
         (
             "lcd_time_format",
             "12h",
@@ -233,25 +230,11 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
             {},
         ),
         (
-            "lcd_time_format",
-            "unknown",
-            "set_lcd_time_format",
-            (LcdTimeFormat.TWENTY_FOUR_HOUR,),
-            {},
-        ),
-        (
             "virtual_disk_type",
             "sdcard",
             "update_virtual_device",
             (VirtualDevice.DISK,),
             {"disk_type": DiskType.SDCARD},
-        ),
-        (
-            "virtual_disk_type",
-            "unknown",
-            "update_virtual_device",
-            (VirtualDevice.DISK,),
-            {"disk_type": DiskType.EMMC},
         ),
     ],
 )

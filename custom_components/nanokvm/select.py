@@ -135,7 +135,7 @@ def _set_hid_mode(
     coordinator: NanoKVMDataUpdateCoordinator, option: str
 ) -> Awaitable[Any]:
     """Set HID mode from option key."""
-    return coordinator.client.set_hid_mode(HID_MODE_OPTIONS.get(option, HidMode.NORMAL))
+    return coordinator.client.set_hid_mode(HID_MODE_OPTIONS[option])
 
 
 def _mouse_jiggler_mode_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
@@ -150,8 +150,8 @@ def _set_mouse_jiggler_mode(
 ) -> Awaitable[Any]:
     """Set mouse jiggler state from option key."""
     return coordinator.client.set_mouse_jiggler_state(
-        MOUSE_JIGGLER_OPTIONS.get(option) is not None,
-        MOUSE_JIGGLER_OPTIONS.get(option) or MouseJigglerMode.ABSOLUTE,
+        MOUSE_JIGGLER_OPTIONS[option] is not None,
+        MOUSE_JIGGLER_OPTIONS[option] or MouseJigglerMode.ABSOLUTE,
     )
 
 
@@ -166,7 +166,7 @@ def _set_oled_sleep(
     coordinator: NanoKVMDataUpdateCoordinator, option: str
 ) -> Awaitable[Any]:
     """Set OLED sleep timeout from option key."""
-    return coordinator.client.set_oled_sleep(OLED_SLEEP_OPTIONS.get(option, 0))
+    return coordinator.client.set_oled_sleep(OLED_SLEEP_OPTIONS[option])
 
 
 def _swap_size_value(coordinator: NanoKVMDataUpdateCoordinator) -> str:
@@ -180,7 +180,7 @@ def _set_swap_size(
     coordinator: NanoKVMDataUpdateCoordinator, option: str
 ) -> Awaitable[Any]:
     """Set swap size from option key."""
-    return coordinator.client.set_swap_size(SWAP_OPTIONS.get(option, 0))
+    return coordinator.client.set_swap_size(SWAP_OPTIONS[option])
 
 
 def _lcd_time_format_value(coordinator: NanoKVMDataUpdateCoordinator) -> str | None:
@@ -195,7 +195,7 @@ def _set_lcd_time_format(
 ) -> Awaitable[Any]:
     """Set LCD time format from option key."""
     return coordinator.client.set_lcd_time_format(
-        LCD_TIME_FORMAT_OPTIONS.get(option, LcdTimeFormat.TWENTY_FOUR_HOUR)
+        LCD_TIME_FORMAT_OPTIONS[option]
     )
 
 
@@ -216,7 +216,7 @@ def _set_pro_disk(
     """Set Pro virtual disk type."""
     return coordinator.client.update_virtual_device(
         VirtualDevice.DISK,
-        disk_type=DISK_TYPE_OPTIONS.get(option, DiskType.EMMC),
+        disk_type=DISK_TYPE_OPTIONS[option],
     )
 
 

@@ -65,19 +65,6 @@ class RegisteredService:
     supports_response: SupportsResponse
 
 
-class ModelResponse:
-    """Minimal model-dump boundary used by response normalization tests."""
-
-    def __init__(self, response: dict[str, Any]) -> None:
-        self.response = response
-        self.mode: str | None = None
-
-    def model_dump(self, *, mode: str) -> dict[str, Any]:
-        """Record the requested serialization mode and return JSON-ready data."""
-        self.mode = mode
-        return self.response
-
-
 def _client() -> SimpleNamespace:
     """Return the NanoKVM client methods exposed through service handlers."""
     return SimpleNamespace(
@@ -198,27 +185,6 @@ async def _call_service(
         return_response=service.supports_response is SupportsResponse.ONLY,
     )
     return await service.handler(service_call)
-
-
-def test_model_to_response_serializes_models_in_json_mode() -> None:
-    """Model responses must request JSON-safe values for Home Assistant."""
-    model = ModelResponse({"status": "ready"})
-
-    assert services_module._model_to_response(model) == {"status": "ready"}
-    assert model.mode == "json"
-
-
-def test_model_to_response_preserves_mapping_responses() -> None:
-    """Already-normalized mapping responses must be returned unchanged."""
-    response = {"items": ["one", "two"]}
-
-    assert services_module._model_to_response(response) is response
-
-
-@pytest.mark.parametrize("value", [None, True, "ready", ["one"]])
-def test_model_to_response_wraps_non_mapping_values(value: object) -> None:
-    """Scalar and sequence responses must receive a stable response key."""
-    assert services_module._model_to_response(value) == {"value": value}
 
 
 def test_pro_gate_accepts_pro_hardware() -> None:
