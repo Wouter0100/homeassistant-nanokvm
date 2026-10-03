@@ -41,9 +41,7 @@ class NanoKVMNumberEntityDescription(NumberEntityDescription):
     max_value_fn: Callable[[NanoKVMDataUpdateCoordinator], float] = (
         lambda _: LED_BEAD_TOTAL_LIMIT
     )
-    set_value_fn: Callable[
-        [NanoKVMDataUpdateCoordinator, float], Awaitable[Any]
-    ] | None = None
+    set_value_fn: Callable[[NanoKVMDataUpdateCoordinator, float], Awaitable[Any]]
 
 
 def _has_led_strip(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -225,11 +223,6 @@ class NanoKVMNumber(NanoKVMEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the number value."""
-        if self.entity_description.set_value_fn is None:
-            raise RuntimeError(
-                f"Missing number handler for number: {self.entity_description.key}"
-            )
-
         try:
             async with self._async_device_action():
                 await self.entity_description.set_value_fn(self.coordinator, value)

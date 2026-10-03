@@ -31,9 +31,7 @@ class NanoKVMSelectEntityDescription(SelectEntityDescription):
     value_fn: Callable[[NanoKVMDataUpdateCoordinator], str | None] = lambda _: ""
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
     options_fn: Callable[[NanoKVMDataUpdateCoordinator], list[str]] | None = None
-    select_option_fn: Callable[
-        [NanoKVMDataUpdateCoordinator, str], Awaitable[Any]
-    ] | None = None
+    select_option_fn: Callable[[NanoKVMDataUpdateCoordinator, str], Awaitable[Any]]
 
 
 MOUSE_JIGGLER_OPTIONS = {
@@ -340,8 +338,6 @@ class NanoKVMSelect(NanoKVMEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        if self.entity_description.select_option_fn is None:
-            raise RuntimeError(f"Missing select handler for select: {self.entity_description.key}")
         async with self._async_device_action():
             await self.entity_description.select_option_fn(self.coordinator, option)
         await self.coordinator.async_request_refresh()

@@ -89,18 +89,6 @@ async def test_button_press_uses_serialized_client_and_refreshes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_button_without_handler_raises() -> None:
-    """A malformed button description must fail clearly instead of doing nothing."""
-    entity = button_module.NanoKVMButton(
-        _coordinator(),
-        button_module.NanoKVMButtonEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(RuntimeError, match="Missing press handler for button: missing"):
-        await entity.async_press()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("key", "value", "expected"),
     [
@@ -168,20 +156,6 @@ async def test_number_validation_error_becomes_home_assistant_error() -> None:
         await entity.async_set_native_value(101)
 
     coordinator.async_request_refresh.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_number_without_handler_raises() -> None:
-    """A malformed number description must fail before client access."""
-    entity = number_module.NanoKVMNumber(
-        _coordinator(),
-        number_module.NanoKVMNumberEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(
-        RuntimeError, match="Missing number handler for number: missing"
-    ):
-        await entity.async_set_native_value(1)
 
 
 def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
@@ -281,20 +255,6 @@ def test_select_entity_exposes_static_and_dynamic_options() -> None:
     assert static.options == ["normal", "hid_only"]
     assert dynamic.current_option == "emmc"
     assert dynamic.options == ["emmc"]
-
-
-@pytest.mark.asyncio
-async def test_select_without_handler_raises() -> None:
-    """A malformed select description must fail before client access."""
-    entity = select_module.NanoKVMSelect(
-        _coordinator(),
-        select_module.NanoKVMSelectEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(
-        RuntimeError, match="Missing select handler for select: missing"
-    ):
-        await entity.async_select_option("anything")
 
 
 def test_binary_sensor_and_sensor_entities_expose_coordinator_data() -> None:

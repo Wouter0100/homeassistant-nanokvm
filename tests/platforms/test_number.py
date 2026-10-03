@@ -17,7 +17,6 @@ from custom_components.nanokvm.const import (
 )
 from custom_components.nanokvm.number import (
     NUMBERS,
-    NanoKVMNumberEntityDescription,
     _has_led_strip,
     _led_brightness_value,
     _led_horizontal_max,
@@ -103,20 +102,6 @@ def test_dynamic_axis_maxima_use_minimum_axis_without_state(
 
     assert _led_horizontal_max(coordinator) == 148
     assert _led_vertical_max(coordinator) == 74
-
-
-def test_number_description_defaults_are_safe(
-    coordinator_state_factory: CoordinatorStateFactory,
-) -> None:
-    """An uncustomized description has inert value/action defaults."""
-    description = NanoKVMNumberEntityDescription(key="test")
-    coordinator = coordinator_state_factory()
-
-    assert description.value_fn(coordinator) is None
-    assert description.available_fn(coordinator) is True
-    assert description.min_value_fn(coordinator) == LED_BEAD_MIN
-    assert description.max_value_fn(coordinator) == LED_BEAD_TOTAL_LIMIT
-    assert description.set_value_fn is None
 
 
 def test_number_description_keys_and_common_contract() -> None:

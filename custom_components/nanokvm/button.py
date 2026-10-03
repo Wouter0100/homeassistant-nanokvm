@@ -28,7 +28,7 @@ from .entity import NanoKVMEntity
 class NanoKVMButtonEntityDescription(ButtonEntityDescription):
     """Describes NanoKVM button entity."""
 
-    press_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[None]] | None = None
+    press_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[None]]
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
 
 
@@ -133,8 +133,6 @@ class NanoKVMButton(NanoKVMEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Press the button."""
-        if self.entity_description.press_fn is None:
-            raise RuntimeError(f"Missing press handler for button: {self.entity_description.key}")
         async with self._async_device_action():
             await self.entity_description.press_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
