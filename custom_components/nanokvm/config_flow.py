@@ -41,6 +41,7 @@ from .utils import (
     https_probe_url,
     normalize_host,
     normalize_mdns,
+    verification_url,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -123,6 +124,22 @@ async def async_prepare_ssh_host_key(data: dict[str, Any]) -> SSHHostKey | None:
             return None
 
     return None
+
+
+async def async_is_nanokvm_api(api_url: str, ssl_fingerprint: str) -> bool:
+    """Return whether a not yet trusted HTTPS endpoint speaks the NanoKVM API.
+
+    Only the public factory-default credentials are sent, so nothing secret
+    reaches a host whose certificate the user has not approved.
+    """
+    try:
+        async with NanoKVMClient(api_url, ssl_fingerprint=ssl_fingerprint) as client:
+            await client.authenticate(DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    except NanoKVMAuthenticationFailure:
+        return True
+    except (aiohttp.ClientError, asyncio.TimeoutError, NanoKVMError):
+        return False
+    return True
 
 
 class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -232,15 +249,21 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         entry: ConfigEntry,
         discovery_host: str,
         device_key: str,
-    ) -> str:
-        """Prefer the chosen host, then the working fallback, after identity checks."""
+    ) -> tuple[str, str]:
+        """Prefer the chosen host, then the working fallback, after identity checks.
+
+        Returns the host to use and the preferred host to keep.
+        """
         current_host = entry.data[CONF_HOST]
         preferred_host = entry.data.get(CONF_PREFERRED_HOST) or current_host
+        selected_host = discovery_host
+        preferred_host_reassigned = False
         for host in dict.fromkeys((preferred_host, current_host)):
-            probe_url = https_probe_url(host)
+            probe_url = verification_url(host)
             if probe_url == https_probe_url(discovery_host):
                 # The discovery request has already verified this endpoint.
-                return host
+                selected_host = host
+                break
             try:
                 async with asyncio.timeout(PREFERRED_HOST_TIMEOUT_SECONDS):
                     candidate_key = await validate_input(
@@ -251,8 +274,14 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             ):
                 continue
             if candidate_key == device_key:
-                return host
-        return discovery_host
+                selected_host = host
+                break
+            if host == preferred_host:
+                # The address now belongs to another NanoKVM.
+                preferred_host_reassigned = True
+        if preferred_host_reassigned:
+            preferred_host = selected_host
+        return selected_host, preferred_host
 
     async def _async_handle_existing_entry(
         self,
@@ -314,6 +343,15 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                         preferred_host=preferred_host,
                     )
 
+        return self._async_update_discovered_entry(entry, data_updates, device_key)
+
+    def _async_update_discovered_entry(
+        self,
+        entry: ConfigEntry,
+        data_updates: dict[str, Any],
+        device_key: str | None,
+    ) -> ConfigFlowResult:
+        """Save discovery updates and migrate a legacy unique ID when verified."""
         update_kwargs: dict[str, Any] = {
             "data_updates": data_updates,
             "reason": "already_configured",
@@ -339,7 +377,18 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
             data[CONF_PREFERRED_HOST] = preferred_host
         host_key = await async_prepare_ssh_host_key(data)
         if host_key is None:
-            return self.async_abort(reason="ssh_host_key_unavailable")
+            if device_key is None:
+                # Nothing verified this host, so it cannot replace the saved one.
+                return self.async_abort(reason="ssh_host_key_unavailable")
+            # SSH is optional. Keep the API host current and drop the key that
+            # can no longer be verified until the user approves a new one.
+            data_updates: dict[str, Any] = {
+                CONF_HOST: discovery_host,
+                CONF_SSH_HOST_KEY: None,
+            }
+            if preferred_host is not None:
+                data_updates[CONF_PREFERRED_HOST] = preferred_host
+            return self._async_update_discovered_entry(entry, data_updates, device_key)
 
         self._reconfigure_entry = entry
         self._pending_ssh_host_key = host_key
@@ -814,11 +863,14 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                 if existing_entry and existing_entry.unique_id not in (
                     device_key, discovery_hostname
                 ):
+                    # Another NanoKVM answers at an address saved for this
+                    # entry. Leave the entry alone and handle the device by
+                    # its own identity.
                     _LOGGER.debug(
-                        "Ignoring discovery at %s: device identity differs from the configured device",
+                        "Device at %s differs from the entry configured for that address",
                         discovery_host,
                     )
-                    return self.async_abort(reason="cannot_connect")
+                    existing_entry = None
 
                 await self.async_set_unique_id(device_key)
 
@@ -830,17 +882,21 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                         is_ssh_service
                         and not entry.data.get(CONF_USE_STATIC_HOST, False)
                     ):
-                        selected_host = await self._async_select_discovery_host(
+                        (
+                            selected_host,
+                            preferred_host,
+                        ) = await self._async_select_discovery_host(
                             entry, discovery_host, device_key
                         )
                         current_host = entry.data[CONF_HOST]
-                        if selected_host != current_host:
+                        if selected_host != current_host or preferred_host != (
+                            entry.data.get(CONF_PREFERRED_HOST) or current_host
+                        ):
                             return await self._async_handle_existing_entry(
                                 entry,
                                 selected_host,
                                 device_key=device_key,
-                                preferred_host=entry.data.get(CONF_PREFERRED_HOST)
-                                or current_host,
+                                preferred_host=preferred_host,
                             )
                         if (
                             entry.unique_id == device_key
@@ -887,15 +943,35 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
                         discovery_host,
                     )
             except aiohttp.ClientConnectorCertificateError:
+                if existing_entry:
+                    # Without a saved pin, discovery cannot verify this entry.
+                    return self.async_abort(reason="already_configured")
+                # Reserve the hostname before waiting for TLS trust so repeated
+                # zeroconf updates cannot create duplicate discovery flows.
+                await self.async_set_unique_id(discovery_hostname)
+                # Any host can advertise SSH, so only ask for TLS trust once
+                # the endpoint has answered like a NanoKVM.
+                try:
+                    fingerprint = await async_fetch_remote_fingerprint(api_url)
+                except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                    fingerprint = None
+                if fingerprint is None or not await async_is_nanokvm_api(
+                    api_url, fingerprint
+                ):
+                    _LOGGER.debug(
+                        "Ignoring %s (%s): untrusted TLS host is not a NanoKVM.",
+                        discovery_hostname,
+                        discovery_host,
+                    )
+                    return self.async_abort(reason="cannot_connect")
                 _LOGGER.debug(
                     "NanoKVM discovered at %s (%s) uses an untrusted TLS certificate.",
                     discovery_hostname,
                     discovery_host,
                 )
-                # Reserve the hostname before waiting for TLS trust so repeated
-                # zeroconf updates cannot create duplicate discovery flows.
-                await self.async_set_unique_id(discovery_hostname)
-                return await self._async_fetch_and_redirect_ssl("zeroconf")
+                self._ssl_return_step = "zeroconf"
+                self._discovered_fingerprint = fingerprint
+                return await self.async_step_ssl_fingerprint()
             except (aiohttp.ClientError, asyncio.TimeoutError, NanoKVMError) as err:
                 _LOGGER.debug(
                     "Failed to connect to %s (%s) during discovery: %s. Ignoring as most likely not a NanoKVM device.",

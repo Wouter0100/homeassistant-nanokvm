@@ -293,7 +293,7 @@ async def test_async_camera_image_returns_frame_and_handles_fetch_error(
     assert await entity.async_camera_image(width=640, height=480) == b"jpeg"
 
     read_frame.side_effect = TimeoutError("snapshot timed out")
-    with caplog.at_level(logging.ERROR, logger=camera_module.__name__):
+    with caplog.at_level(logging.WARNING, logger=camera_module.__name__):
         assert await entity.async_camera_image() is None
 
     assert "Error fetching still image: snapshot timed out" in caplog.text

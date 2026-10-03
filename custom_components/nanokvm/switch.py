@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from nanokvm.client import NanoKVMError
 from nanokvm.models import GpioType, VirtualDevice
 
 from .const import (
@@ -31,7 +32,7 @@ from .const import (
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
-from .led import build_led_strip_config
+from .led import async_set_led_strip
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -118,16 +119,9 @@ async def _set_led_strip_on(
 ) -> None:
     """Set LED strip power while preserving other LED settings."""
     try:
-        config = build_led_strip_config(coordinator.led_strip, on=enabled)
+        await async_set_led_strip(coordinator, on=enabled)
     except ValueError as err:
         raise HomeAssistantError(str(err)) from err
-
-    await coordinator.client.set_led_strip(
-        on=config.on,
-        brightness=config.brightness,
-        horizontal_count=config.horizontal_count,
-        vertical_count=config.vertical_count,
-    )
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
@@ -396,7 +390,7 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
         """Turn on the switch."""
         if self.entity_description.turn_on_fn is None:
             raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
-        async with self.coordinator.async_client():
+        async with self._async_device_action():
             await self.entity_description.turn_on_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
@@ -404,13 +398,15 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
         """Turn off the switch."""
         if self.entity_description.turn_off_fn is None:
             raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
-        async with self.coordinator.async_client():
+        async with self._async_device_action():
             await self.entity_description.turn_off_fn(self.coordinator)
         await self.coordinator.async_request_refresh()
 
 
 class NanoKVMPowerSwitch(NanoKVMSwitch):
     """Defines a NanoKVM power switch with special shutdown behavior."""
+
+    _shutdown_monitor: asyncio.Task[None] | None = None
 
     async def _async_current_power_state(self) -> bool | None:
         """Refresh and return the current power state when available."""
@@ -426,7 +422,7 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
             raise RuntimeError(f"Missing turn_on handler for switch: {self.entity_description.key}")
         if await self._async_current_power_state() is True:
             return
-        async with self.coordinator.async_client():
+        async with self._async_device_action():
             await self.entity_description.turn_on_fn(self.coordinator)
         await asyncio.sleep(1)
         await self.coordinator.async_request_refresh()
@@ -438,9 +434,20 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
             raise RuntimeError(f"Missing turn_off handler for switch: {self.entity_description.key}")
         if await self._async_current_power_state() is False:
             return
-        async with self.coordinator.async_client():
+        async with self._async_device_action():
             await self.entity_description.turn_off_fn(self.coordinator)
 
+        # A host can take minutes to shut down, so follow it in the background
+        # instead of holding the action open.
+        if self._shutdown_monitor is not None:
+            self._shutdown_monitor.cancel()
+        self._shutdown_monitor = self.hass.async_create_background_task(
+            self._async_monitor_shutdown(),
+            name=f"nanokvm power-off monitor {self.unique_id}",
+        )
+
+    async def _async_monitor_shutdown(self) -> None:
+        """Refresh until the host reports power off or the wait times out."""
         SHUTDOWN_TIMEOUT = 300
         SHUTDOWN_POLL_INTERVAL = 5
 
@@ -454,6 +461,13 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
         _LOGGER.warning("Device did not turn off within %s seconds", SHUTDOWN_TIMEOUT)
         await self.coordinator.async_request_refresh()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop following a pending shutdown when the entity is removed."""
+        await super().async_will_remove_from_hass()
+        if self._shutdown_monitor is not None:
+            self._shutdown_monitor.cancel()
+            self._shutdown_monitor = None
 
 
 class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
@@ -471,7 +485,7 @@ class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
         if self.is_on == enabled:
             return
 
-        async with self.coordinator.async_client() as client:
+        async with self._async_device_action() as client:
             await client.update_virtual_device(virtual_device)
         await self.coordinator.async_request_refresh()
 
@@ -492,7 +506,12 @@ class NanoKVMWatchdogSwitch(NanoKVMSwitch):
     async def _async_set_watchdog_state(self, enabled: bool) -> None:
         """Set watchdog state via SSH and refresh coordinator state."""
         collector = await self.coordinator.async_ensure_ssh_metrics_collector()
-        await collector.set_watchdog_enabled(enabled)
+        try:
+            await collector.set_watchdog_enabled(enabled)
+        except NanoKVMError as err:
+            raise HomeAssistantError(
+                f"NanoKVM did not accept the request: {err}"
+            ) from err
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self, **kwargs: Any) -> None:

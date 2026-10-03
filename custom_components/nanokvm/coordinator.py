@@ -15,6 +15,8 @@ from awesomeversion import AwesomeVersion, AwesomeVersionException
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -62,27 +64,49 @@ from .const import (
     CONF_USE_STATIC_HOST,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    INTEGRATION_TITLE,
     PREFERRED_HOST_CHECK_INTERVAL_SECONDS,
+    PREFERRED_HOST_MAX_CHECK_INTERVAL_SECONDS,
     PREFERRED_HOST_TIMEOUT_SECONDS,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_NETWORK_ENTITIES,
     SIGNAL_NEW_SSH_SENSORS,
     SIGNAL_NEW_SSH_SWITCHES,
 )
+from .led import LedBrightnessRequest, note_reported_led_strip
 from .ssh_metrics import SSHMetricsCollector
 from .ssh_host_keys import retarget_known_hosts_line
-from .utils import api_connection_options, extract_ssh_host, https_probe_url
+from .utils import (
+    api_connection_options,
+    device_sw_version,
+    extract_ssh_host,
+    verification_url,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 _UPDATE_MAX_ATTEMPTS = 3
 _UPDATE_RETRY_DELAY_SECONDS = 1
 _UPDATE_TIMEOUT_SECONDS = 10
+_REQUEST_REFRESH_COOLDOWN_SECONDS = 1.5
 _SSH_METRICS_TIMEOUT_SECONDS = 15
 _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
+_MAX_CONCURRENT_REQUESTS = 4
+_GATED_CORE_ATTRIBUTES = (
+    "virtual_device_info",
+    "hdmi_state",
+    "swap_size",
+    "hdmi_capture",
+    "hdmi_passthrough",
+    "low_power",
+    "led_strip",
+    "lcd_time_format",
+    "time_status",
+    "static_ip",
+)
 _INVALID_FILE_CONTENT_CODE = -2
 _INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
 _ResponseT = TypeVar("_ResponseT")
@@ -178,6 +202,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.hdmi_passthrough = None
         self.low_power = None
         self.led_strip = None
+        self.led_brightness_request: LedBrightnessRequest | None = None
         self.lcd_time_format = None
         self.time_status = None
         self.static_ip = None
@@ -201,6 +226,8 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
         self._preferred_host_last_checked: float | None = None
+        self._registered_device_details: tuple[str, str] | None = None
+        self._preferred_host_check_interval = PREFERRED_HOST_CHECK_INTERVAL_SECONDS
 
         super().__init__(
             hass,
@@ -208,6 +235,14 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             config_entry=config_entry,
             name=DOMAIN,
             update_interval=datetime.timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            # The default ten second cooldown left entities stale after the
+            # second of two actions; polling this device is cheap.
+            request_refresh_debouncer=Debouncer(
+                hass,
+                _LOGGER,
+                cooldown=_REQUEST_REFRESH_COOLDOWN_SECONDS,
+                immediate=True,
+            ),
         )
 
     @contextlib.asynccontextmanager
@@ -273,28 +308,59 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         if (
             self._preferred_host_last_checked is not None
             and now - self._preferred_host_last_checked
-            < PREFERRED_HOST_CHECK_INTERVAL_SECONDS
+            < self._preferred_host_check_interval
         ):
             return False
         self._preferred_host_last_checked = now
 
+        # A scheme-less preferred host is reached like the working connection,
+        # unless a saved pin lets the probe verify the host before logging in.
+        probe_url = verification_url(
+            preferred_host,
+            "https" if data.get(CONF_SSL_FINGERPRINT) else self.client.url.scheme,
+        )
         try:
             async with asyncio.timeout(PREFERRED_HOST_TIMEOUT_SECONDS):
                 async with NanoKVMClient(
-                    https_probe_url(preferred_host),
-                    ssl_fingerprint=data.get(CONF_SSL_FINGERPRINT),
+                    probe_url,
+                    ssl_fingerprint=(
+                        data.get(CONF_SSL_FINGERPRINT)
+                        if probe_url.startswith("https://")
+                        else None
+                    ),
                     request_timeout=PREFERRED_HOST_TIMEOUT_SECONDS,
                 ) as client:
                     await client.authenticate(self.username, self.password)
                     info = await client.get_info()
         except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError):
-            _LOGGER.debug("Preferred NanoKVM host %s is not available", preferred_host)
+            # Back off so a long-gone address is not probed every minute.
+            self._preferred_host_check_interval = min(
+                self._preferred_host_check_interval * 2,
+                PREFERRED_HOST_MAX_CHECK_INTERVAL_SECONDS,
+            )
+            _LOGGER.debug(
+                "Preferred NanoKVM host %s is not available, next check in %ss",
+                preferred_host,
+                self._preferred_host_check_interval,
+            )
+            return False
+        self._preferred_host_check_interval = PREFERRED_HOST_CHECK_INTERVAL_SECONDS
+
+        if self.config_entry.data != data:
             return False
 
-        if (
-            str(info.device_key) != self.config_entry.unique_id
-            or self.config_entry.data != data
-        ):
+        if str(info.device_key) != self.config_entry.unique_id:
+            # The address now belongs to another NanoKVM. Forget it so stored
+            # credentials are not sent there again.
+            _LOGGER.debug(
+                "Preferred NanoKVM host %s now serves another device, keeping %s",
+                preferred_host,
+                data[CONF_HOST],
+            )
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=data | {CONF_PREFERRED_HOST: data[CONF_HOST]},
+            )
             return False
 
         updated_data = data | {CONF_HOST: preferred_host}
@@ -392,9 +458,35 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._async_fetch_storage_data()
                 self._async_maybe_create_media_entities()
 
+        self._async_sync_device_registry()
         await self._async_refresh_ssh_data()
         self._async_schedule_app_version_refresh()
         return self._build_update_data()
+
+    def _async_sync_device_registry(self) -> None:
+        """Keep the registered device name and firmware current between reloads."""
+        details = (
+            self.hostname_info.hostname if self.hostname_info else INTEGRATION_TITLE,
+            device_sw_version(
+                self.device_info.application,
+                getattr(self.device_info, "image", None),
+            ),
+        )
+        if self._registered_device_details in (None, details):
+            # Entities register the device with these values themselves.
+            self._registered_device_details = details
+            return
+
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(
+            identifiers={(DOMAIN, self.device_info.device_key)}
+        )
+        if device is None:
+            return
+        registry.async_update_device(
+            device.id, name=details[0], sw_version=details[1]
+        )
+        self._registered_device_details = details
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""
@@ -561,76 +653,80 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             )
             return None
 
+    async def _async_fetch_concurrently(
+        self, calls: dict[str, Callable[[], Awaitable[Any]]]
+    ) -> dict[str, Any]:
+        """Run independent endpoint calls a few at a time and return all results."""
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
+
+        async def run(call: Callable[[], Awaitable[Any]]) -> Any:
+            async with semaphore:
+                return await call()
+
+        tasks = [asyncio.ensure_future(run(call)) for call in calls.values()]
+        try:
+            results = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        return dict(zip(calls, results))
+
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
-        self.device_info = await self.client.get_info()
-        self.hostname_info = await self.client.get_hostname()
-        self.hardware_info = await self.client.get_hardware()
-        self.gpio_info = await self.client.get_gpio()
+        client = self.client
+        # Hardware identity gates the endpoints below and never changes per device.
+        self.hardware_info = await client.get_hardware()
+
+        def optional(
+            endpoint: str, call: Callable[[], Awaitable[Any]]
+        ) -> Callable[[], Awaitable[Any]]:
+            return lambda: self._fetch_optional(endpoint, call)
+
+        calls: dict[str, Callable[[], Awaitable[Any]]] = {
+            "device_info": client.get_info,
+            "hostname_info": client.get_hostname,
+            "gpio_info": client.get_gpio,
+            "ssh_state": client.get_ssh_state,
+            "mdns_state": client.get_mdns_state,
+            "hid_mode": client.get_hid_mode,
+            "oled_info": self._fetch_oled_info,
+            "wifi_status": client.get_wifi_status,
+            "mouse_jiggler_state": client.get_mouse_jiggler_state,
+            "tailscale_status": client.get_tailscale_status,
+        }
         if self.hardware_info is not None:
-            self.virtual_device_info = await self._fetch_optional(
-                "/vm/device/virtual", self.client.get_virtual_device_status
+            calls["virtual_device_info"] = optional(
+                "/vm/device/virtual", client.get_virtual_device_status
             )
-        else:
-            self.virtual_device_info = None
-        self.ssh_state = await self.client.get_ssh_state()
-        self.mdns_state = await self.client.get_mdns_state()
-        self.hid_mode = await self.client.get_hid_mode()
-        self.oled_info = await self._fetch_oled_info()
-        self.wifi_status = await self.client.get_wifi_status()
         if self.supports_hdmi_endpoint:
-            self.hdmi_state = await self._fetch_optional(
-                "/vm/hdmi", self.client.get_hdmi_state
-            )
-        else:
-            self.hdmi_state = None
-        self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
+            calls["hdmi_state"] = optional("/vm/hdmi", client.get_hdmi_state)
         if self.supports_swap_size:
-            self.swap_size = await self._fetch_optional(
-                "/vm/swap", self.client.get_swap_size
-            )
-        else:
-            self.swap_size = None
-        self.tailscale_status = await self.client.get_tailscale_status()
-        await self._async_fetch_pro_data()
+            calls["swap_size"] = optional("/vm/swap", client.get_swap_size)
+        if self.is_pro_hardware:
+            calls |= {
+                "hdmi_capture": optional("/vm/hdmi/capture", client.get_hdmi_capture),
+                "hdmi_passthrough": optional(
+                    "/vm/hdmi/passthrough", client.get_hdmi_passthrough
+                ),
+                "low_power": optional("/vm/low-power", client.get_low_power),
+                "led_strip": optional("/vm/ledstrip/get", client.get_led_strip),
+                "lcd_time_format": optional(
+                    "/vm/lcd/time/format", client.get_lcd_time_format
+                ),
+                "time_status": optional("/vm/time/status", client.get_time_status),
+                "static_ip": optional("/network/static-ip", client.get_static_ip),
+            }
 
-    async def _async_fetch_pro_data(self) -> None:
-        """Fetch optional NanoKVM Pro state used by entities."""
-        if not self.is_pro_hardware:
-            self._clear_pro_data()
-            return
+        results = await self._async_fetch_concurrently(calls)
 
-        self.hdmi_capture = await self._fetch_optional(
-            "/vm/hdmi/capture", self.client.get_hdmi_capture
-        )
-        self.hdmi_passthrough = await self._fetch_optional(
-            "/vm/hdmi/passthrough", self.client.get_hdmi_passthrough
-        )
-        self.low_power = await self._fetch_optional(
-            "/vm/low-power", self.client.get_low_power
-        )
-        self.led_strip = await self._fetch_optional(
-            "/vm/ledstrip/get", self.client.get_led_strip
-        )
-        self.lcd_time_format = await self._fetch_optional(
-            "/vm/lcd/time/format", self.client.get_lcd_time_format
-        )
-        self.time_status = await self._fetch_optional(
-            "/vm/time/status", self.client.get_time_status
-        )
-        self.static_ip = await self._fetch_optional(
-            "/network/static-ip", self.client.get_static_ip
-        )
-
-    def _clear_pro_data(self) -> None:
-        """Clear NanoKVM Pro-only state."""
-        self.hdmi_capture = None
-        self.hdmi_passthrough = None
-        self.low_power = None
-        self.led_strip = None
-        self.lcd_time_format = None
-        self.time_status = None
-        self.static_ip = None
+        # Publish everything together so a failed poll leaves the last state intact.
+        for attribute in _GATED_CORE_ATTRIBUTES:
+            setattr(self, attribute, None)
+        for attribute, value in results.items():
+            setattr(self, attribute, value)
+        note_reported_led_strip(self, self.led_strip)
 
     def _async_schedule_app_version_refresh(self) -> None:
         """Refresh application version info outside the critical poll path."""
@@ -688,36 +784,23 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
+        mounted_image = GetMountedImageRsp(file="", cdrom=False, readOnly=False)
+        cdrom_status = GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
         if self.hid_mode and self.hid_mode.mode == HidMode.NORMAL:
             try:
-                self.mounted_image = await self.client.get_mounted_image()
+                mounted_image = await self.client.get_mounted_image()
             except NanoKVMApiError as err:
                 _LOGGER.debug(
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
-                self.mounted_image = GetMountedImageRsp(
-                    file="", cdrom=False, readOnly=False
-                )
 
             if self.supports_cdrom_endpoint:
-                try:
-                    self.cdrom_status = await self._fetch_optional(
-                        "/storage/cdrom", self.client.get_cdrom_status
-                    )
-                except NanoKVMApiError as err:
-                    _LOGGER.debug(
-                        "Failed to get CD-ROM status, retrieving default value: %s", err
-                    )
-                    self.cdrom_status = GetCdRomRsp(cdrom=0)
-            else:
-                self.cdrom_status = None
-        else:
-            self.mounted_image = GetMountedImageRsp(
-                file="", cdrom=False, readOnly=False
-            )
-            self.cdrom_status = (
-                GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
-            )
+                cdrom_status = await self._fetch_optional(
+                    "/storage/cdrom", self.client.get_cdrom_status
+                )
+
+        self.mounted_image = mounted_image
+        self.cdrom_status = cdrom_status
 
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""

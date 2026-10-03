@@ -15,6 +15,7 @@ from custom_components.nanokvm.utils import (
     https_probe_url,
     normalize_host,
     normalize_mdns,
+    verification_url,
 )
 
 
@@ -171,6 +172,22 @@ def test_public_url_and_ssh_helpers_delegate_to_connection_target() -> None:
         "https://nanokvm.local/custom/api/"
     )
     assert extract_ssh_host("https://[2001:db8::10]:8443/api/") == "2001:db8::10"
+
+
+@pytest.mark.parametrize(
+    ("host", "default_scheme", "expected"),
+    [
+        ("nanokvm.local", "https", "https://nanokvm.local/api/"),
+        ("nanokvm.local", "http", "http://nanokvm.local/api/"),
+        ("http://nanokvm.local:8080", "https", "http://nanokvm.local:8080/api/"),
+        ("https://nanokvm.local", "http", "https://nanokvm.local/api/"),
+    ],
+)
+def test_verification_url_keeps_explicit_scheme(
+    host: str, default_scheme: str, expected: str
+) -> None:
+    """Identity probes must use the transport the host was configured with."""
+    assert verification_url(host, default_scheme) == expected
 
 
 @pytest.mark.parametrize(

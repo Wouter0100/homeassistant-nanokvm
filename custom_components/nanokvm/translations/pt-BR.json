@@ -325,6 +325,10 @@
       "name": "Pressionar Botão",
       "description": "Simula pressionar um botão físico no dispositivo NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -343,6 +347,10 @@
       "name": "Colar Texto",
       "description": "Cola texto via simulação de teclado HID.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -357,6 +365,10 @@
       "name": "Reiniciar Sistema",
       "description": "Reinicia o dispositivo NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -367,6 +379,10 @@
       "name": "Resetar HDMI",
       "description": "Reseta a conexão HDMI (relevante para versão PCIe).",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -377,6 +393,10 @@
       "name": "Resetar HID",
       "description": "Reseta o subsistema HID.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -387,6 +407,10 @@
       "name": "Wake on LAN",
       "description": "Envia um pacote Wake-on-LAN para o endereço MAC especificado.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -401,6 +425,10 @@
       "name": "Definir Mouse Jiggler",
       "description": "Define o modo do mouse jiggler.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -419,6 +447,10 @@
       "name": "Definir Fita LED",
       "description": "Configura as opções da fita LED do NanoKVM Pro.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -445,6 +477,10 @@
       "name": "Escanear Wi-Fi",
       "description": "Escaneia redes Wi-Fi próximas e retorna a resposta do NanoKVM Pro.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -455,6 +491,10 @@
       "name": "Listar Imagens",
       "description": "Lista as imagens disponíveis no NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -465,6 +505,10 @@
       "name": "Download de Imagem Ativado",
       "description": "Retorna se o download de imagens está ativado no NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -475,6 +519,10 @@
       "name": "Obter Status do Download de Imagem",
       "description": "Retorna o status atual do download de imagem do NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."
@@ -485,6 +533,10 @@
       "name": "Listar EDIDs Personalizados",
       "description": "Lista EDIDs personalizados disponíveis em um NanoKVM Pro.",
       "fields": {
+        "device_id": {
+          "name": "Dispositivo",
+          "description": "Dispositivo NanoKVM de destino opcional. Use-o ou o host quando vários dispositivos NanoKVM estiverem configurados."
+        },
         "host": {
           "name": "Host",
           "description": "Host de destino opcional. Obrigatório quando vários dispositivos NanoKVM estiverem configurados."

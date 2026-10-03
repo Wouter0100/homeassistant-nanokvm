@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
 from homeassistant.core import ServiceCall, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from nanokvm.models import (
     DownloadStatus,
     GetCustomEdidListRsp,
@@ -100,6 +100,7 @@ def _client() -> SimpleNamespace:
 def _coordinator(
     host: str | None = "nanokvm.local",
     *,
+    preferred_host: str | None = None,
     client: SimpleNamespace | None = None,
     is_pro_hardware: bool = False,
     led_strip: GetLedStripRsp | None = None,
@@ -108,6 +109,8 @@ def _coordinator(
     """Return a coordinator with a serialized client-access boundary."""
     service_client = client or _client()
     entry_data = {CONF_HOST: host} if host is not None else {}
+    if preferred_host is not None:
+        entry_data["preferred_host"] = preferred_host
 
     @asynccontextmanager
     async def async_client():
@@ -357,7 +360,7 @@ async def test_target_resolution_requires_host_for_multiple_devices(
 
     with pytest.raises(
         HomeAssistantError,
-        match="Multiple NanoKVM devices are configured; specify the host field",
+        match="Multiple NanoKVM devices are configured; specify the device_id or host",
     ):
         await _call_service(hass_mock, registered_services, SERVICE_REBOOT)
 
@@ -380,6 +383,63 @@ async def test_target_resolution_matches_normalized_host_forms(
 
     first.client.reboot_system.assert_not_awaited()
     selected.client.reboot_system.assert_awaited_once_with()
+
+
+async def test_target_resolution_matches_preferred_host_of_fallback_entry(
+    hass_mock: MagicMock,
+    registered_services: Mapping[str, RegisteredService],
+) -> None:
+    """A device on its fallback address still answers to its preferred host."""
+    first = _coordinator("first.local")
+    selected = _coordinator("192.0.2.21", preferred_host="https://192.0.2.20")
+    _install_coordinators(hass_mock, first, selected)
+
+    await _call_service(
+        hass_mock, registered_services, SERVICE_REBOOT, {CONF_HOST: "192.0.2.20"}
+    )
+
+    first.client.reboot_system.assert_not_awaited()
+    selected.client.reboot_system.assert_awaited_once_with()
+
+
+async def test_target_resolution_by_device_id(
+    hass_mock: MagicMock,
+    registered_services: Mapping[str, RegisteredService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A device target selects its coordinator regardless of the current host."""
+    first = _coordinator("first.local")
+    selected = _coordinator("second.local")
+    _install_coordinators(hass_mock, first, selected)
+    devices = {
+        "device-2": SimpleNamespace(config_entries={"other-entry", "entry-2"}),
+        "foreign": SimpleNamespace(config_entries={"other-entry"}),
+    }
+    monkeypatch.setattr(
+        services_module.dr,
+        "async_get",
+        lambda hass: SimpleNamespace(async_get=devices.get),
+    )
+
+    await _call_service(
+        hass_mock, registered_services, SERVICE_REBOOT, {"device_id": "device-2"}
+    )
+
+    first.client.reboot_system.assert_not_awaited()
+    selected.client.reboot_system.assert_awaited_once_with()
+
+    # A bad target is the caller's mistake, not an internal failure.
+    for device_id in ("foreign", "missing"):
+        with pytest.raises(
+            ServiceValidationError,
+            match=f"No NanoKVM device is configured for device {device_id}",
+        ):
+            await _call_service(
+                hass_mock,
+                registered_services,
+                SERVICE_REBOOT,
+                {"device_id": device_id},
+            )
 
 
 async def test_target_resolution_rejects_unknown_host(

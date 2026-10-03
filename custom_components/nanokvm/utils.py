@@ -114,6 +114,11 @@ class NanoKVMConnectionTarget:
         """Return the HTTPS API base URL for certificate fingerprint probing."""
         return _api_base_url(self.origin, "https")
 
+    def verification_url(self, default_scheme: str = "https") -> str:
+        """Return the API base URL for verifying the device behind this target."""
+        scheme = self.origin.scheme if self.has_explicit_scheme else default_scheme
+        return _api_base_url(self.origin, scheme)
+
 
 def api_connection_options(
     host: str,
@@ -133,6 +138,11 @@ def https_probe_url(host: str) -> str:
     return NanoKVMConnectionTarget.from_host(host).https_probe_url
 
 
+def verification_url(host: str, default_scheme: str = "https") -> str:
+    """Return the API base URL for verifying a host, keeping an explicit scheme."""
+    return NanoKVMConnectionTarget.from_host(host).verification_url(default_scheme)
+
+
 def api_base_url_to_web_url(base_url: str) -> str:
     """Convert a NanoKVM API base URL into the corresponding web UI URL."""
     parsed_url = URL(base_url).with_query(None).with_fragment(None)
@@ -144,6 +154,11 @@ def normalize_host(host: str, ssl_fingerprint: str | None = None) -> str:
     return NanoKVMConnectionTarget.from_host(host).api_connection_options(
         ssl_fingerprint=ssl_fingerprint,
     )[0].base_url
+
+
+def device_sw_version(application: str, image: str | None) -> str:
+    """Return the software version shown for a NanoKVM device."""
+    return f"{application} (Image: {image})" if image else application
 
 
 def normalize_mdns(mdns: str) -> str:

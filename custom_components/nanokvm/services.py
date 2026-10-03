@@ -13,7 +13,9 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import ATTR_DEVICE_ID
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 
 from nanokvm.client import NanoKVMClient
 from nanokvm.models import GpioType, MouseJigglerMode
@@ -32,6 +34,7 @@ from .const import (
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
     CONF_HOST,
+    CONF_PREFERRED_HOST,
     DOMAIN,
     LED_BEAD_MIN,
     LED_BEAD_TOTAL_LIMIT,
@@ -52,7 +55,7 @@ from .const import (
     SERVICE_WAKE_ON_LAN,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .led import build_led_strip_config
+from .led import async_set_led_strip
 from .utils import host_match_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +77,7 @@ _SERVICE_NAMES = (
 )
 
 _OPTIONAL_HOST_FIELD = {
+    vol.Optional(ATTR_DEVICE_ID): vol.All(str, vol.Length(min=1)),
     vol.Optional(CONF_HOST): vol.All(str, vol.Length(min=1)),
 }
 
@@ -152,31 +156,50 @@ def async_register_services(hass: HomeAssistant) -> None:
 
     def _resolve_target_coordinator(call: ServiceCall) -> NanoKVMDataUpdateCoordinator:
         """Resolve the single NanoKVM device targeted by a service call."""
-        coordinators = list(hass.data.get(DOMAIN, {}).values())
+        domain_data = hass.data.get(DOMAIN, {})
+        coordinators = list(domain_data.values())
         if not coordinators:
-            raise HomeAssistantError("No NanoKVM devices are configured")
+            raise ServiceValidationError("No NanoKVM devices are configured")
+
+        device_id = call.data.get(ATTR_DEVICE_ID)
+        if device_id is not None:
+            device = dr.async_get(hass).async_get(device_id)
+            for entry_id in device.config_entries if device is not None else ():
+                if entry_id in domain_data:
+                    return domain_data[entry_id]
+            raise ServiceValidationError(
+                f"No NanoKVM device is configured for device {device_id}"
+            )
 
         requested_host = call.data.get(CONF_HOST)
         if requested_host is None:
             if len(coordinators) == 1:
                 return coordinators[0]
-            raise HomeAssistantError(
-                "Multiple NanoKVM devices are configured; specify the host field to target one device"
+            raise ServiceValidationError(
+                "Multiple NanoKVM devices are configured; specify the device_id or host field to target one device"
             )
 
+        # An entry on a fallback address still answers to its preferred host.
         requested_host_key = host_match_key(requested_host)
         matches = [
             coordinator
             for coordinator in coordinators
-            if host_match_key(coordinator.config_entry.data[CONF_HOST])
-            == requested_host_key
+            if requested_host_key
+            in {
+                host_match_key(host)
+                for host in (
+                    coordinator.config_entry.data[CONF_HOST],
+                    coordinator.config_entry.data.get(CONF_PREFERRED_HOST),
+                )
+                if isinstance(host, str)
+            }
         ]
 
         if not matches:
-            raise HomeAssistantError(f"No NanoKVM device is configured for host {requested_host}")
+            raise ServiceValidationError(f"No NanoKVM device is configured for host {requested_host}")
 
         if len(matches) > 1:
-            raise HomeAssistantError(
+            raise ServiceValidationError(
                 f"Multiple NanoKVM devices match host {requested_host}; fix the duplicate configuration before calling this service"
             )
 
@@ -355,8 +378,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         ) -> None:
             _ensure_pro(coordinator, SERVICE_SET_LED_STRIP)
             try:
-                config = build_led_strip_config(
-                    coordinator.led_strip,
+                await async_set_led_strip(
+                    coordinator,
                     on=call.data.get(ATTR_ON),
                     brightness=call.data.get(ATTR_BRIGHTNESS),
                     horizontal_count=call.data.get(ATTR_HORIZONTAL_COUNT),
@@ -364,13 +387,6 @@ def async_register_services(hass: HomeAssistant) -> None:
                 )
             except ValueError as err:
                 raise HomeAssistantError(str(err)) from err
-
-            await client.set_led_strip(
-                on=config.on,
-                brightness=config.brightness,
-                horizontal_count=config.horizontal_count,
-                vertical_count=config.vertical_count,
-            )
             _LOGGER.debug("LED strip settings updated on %s", host)
 
         await _execute_service(call, SERVICE_SET_LED_STRIP, service_logic)

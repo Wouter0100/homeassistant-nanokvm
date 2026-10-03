@@ -35,19 +35,28 @@ The integration follows the standard structure for a Home Assistant
 
 - **`coordinator.py`**: Hosts `NanoKVMDataUpdateCoordinator`.
   - Central polling logic (`_async_update_data`) and API fetch helpers.
+  - Fetches independent core endpoints a few at a time and publishes their
+    results together, so a failed poll keeps the previous state.
+  - Keeps the device registry name and firmware version current.
   - Handles reauthentication, storage-state fetches, optional NanoKVM Pro
     state, dynamic media/network/SSH entities, and SSH metric refresh.
   - Gates non-Pro-only endpoints such as swap size, CD-ROM state, HDMI output,
     and non-Pro virtual disk controls.
-  - Checks a fallback Pro entry's saved preferred host at most once per minute
-    and restores it only after authenticating and verifying its device key.
+  - Checks a fallback Pro entry's saved preferred host at most once per minute,
+    backing off to hourly while it is unreachable, and restores it only after
+    authenticating and verifying its device key. Forgets a preferred host that
+    answers with another device key.
 
 - **`entity.py`**: Defines `NanoKVMEntity` base class.
   - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
+  - `_async_device_action` wraps client access for actions and reports device
+    failures as `HomeAssistantError`.
 
 - **`services.py`**: Service schemas, registration, and handlers.
   - Implements all `nanokvm.*` service behavior, response services, and
     unregister logic.
+  - Targets a device by `device_id`, or by `host` matched against the entry's
+    current and preferred hosts.
 
 - **`config_flow.py`**: Manages the user configuration flow in Home Assistant.
   - Implements `ConfigFlow` for manual setup and zeroconf discovery.
@@ -58,19 +67,23 @@ The integration follows the standard structure for a Home Assistant
   - Matches Pro discovery across advertised addresses and API-reported device
     hostnames and reuses saved TLS trust. Saves the chosen host as preferred,
     keeps working fallbacks, and returns to the preferred host when verified.
+  - Asks for TLS trust on SSH discovery only after the host answers like a
+    NanoKVM, and treats a different device at a saved address as its own device.
 
 - **`const.py`**: Central repository for shared constants (domain, service
   names, attributes, defaults, icons, and signal names).
 
 - **`utils.py`**: Shared helpers for host normalization and SSH host extraction.
-  - Resolves HTTP/HTTPS API candidates, HTTPS probe URLs, and normalized host
-    matching keys.
+  - Resolves HTTP/HTTPS API candidates, HTTPS probe URLs, scheme-preserving
+    verification URLs, and normalized host matching keys.
 
 - **`ssh_metrics.py`**: SSH metrics collection implementation used by the
   coordinator.
 
 - **`led.py`**: Shared NanoKVM Pro LED strip validation and config helpers.
   - Enforces LED brightness and bead-count constraints for entities/services.
+  - `async_set_led_strip` is the single write path. It remembers the requested
+    brightness, because the Pro can report a lower value than it stores.
 
 - **`manifest.json`**: Integration metadata.
   - Domain, name, version, dependencies (including `zeroconf`).
@@ -109,8 +122,8 @@ Each platform follows a similar pattern:
    Platform setup iterates entity descriptions and creates entity instances.
 5. **Entity class**:
    Entity classes inherit a Home Assistant base class plus `NanoKVMEntity`.
-   Action methods wrap client calls in `async with self.coordinator.client:`
-   for correct session handling.
+   Action methods wrap client calls in `async with self._async_device_action():`
+   for serialized client access and consistent error reporting.
 
 ### Services
 

@@ -217,6 +217,51 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
 
 
+def test_refresh_requests_use_a_short_cooldown(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """A second action shortly after the first still refreshes state promptly."""
+    debouncer = coordinator._debounced_refresh
+
+    assert debouncer.cooldown == coordinator_module._REQUEST_REFRESH_COOLDOWN_SECONDS
+    assert debouncer.cooldown < 5
+    assert debouncer.immediate is True
+
+
+def test_device_registry_follows_firmware_and_hostname_changes(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An updated application or hostname reaches the device registry without a reload."""
+    registry = MagicMock()
+    registry.async_get_device.return_value = SimpleNamespace(id="device-id")
+    monkeypatch.setattr(coordinator_module.dr, "async_get", lambda hass: registry)
+    coordinator.device_info = SimpleNamespace(
+        device_key="test-device", application="2.3.4", image="2026-07-01"
+    )
+    coordinator.hostname_info = SimpleNamespace(hostname="nano-pro")
+
+    coordinator._async_sync_device_registry()
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_not_called()
+
+    coordinator.device_info.application = "2.4.0"
+    registry.async_get_device.return_value = None
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_not_called()
+
+    registry.async_get_device.return_value = SimpleNamespace(id="device-id")
+    coordinator._async_sync_device_registry()
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_called_once_with(
+        "device-id", name="nano-pro", sw_version="2.4.0 (Image: 2026-07-01)"
+    )
+
+    coordinator.hostname_info = None
+    coordinator._async_sync_device_registry()
+    assert registry.async_update_device.call_args.kwargs["name"] == "NanoKVM"
+
+
 def _use_wifi_with_preferred_ethernet(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:
@@ -320,7 +365,7 @@ async def test_periodic_preferred_host_rejects_different_device_identity(
     coordinator: NanoKVMDataUpdateCoordinator,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A reused preferred IP cannot redirect the entry to another NanoKVM."""
+    """A reused preferred IP is forgotten instead of redirecting or being re-probed."""
     _use_wifi_with_preferred_ethernet(coordinator)
     preferred = _candidate_client("https://192.0.2.20/api/")
     preferred.get_info.return_value = _device_info(device_key="different-device")
@@ -329,7 +374,10 @@ async def test_periodic_preferred_host_rejects_different_device_identity(
 
     assert await coordinator._async_update_data() == {"active_host": "wifi"}
     assert factory.call_count == 1
-    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == "192.0.2.21"
+    assert updated["preferred_host"] == "192.0.2.21"
+    coordinator.hass.config_entries.async_schedule_reload.assert_not_called()
 
 
 async def test_periodic_preferred_host_respects_configuration_changes_during_probe(
@@ -374,12 +422,78 @@ async def test_periodic_preferred_host_probe_is_throttled_then_recovers(
     now = 30.0
     assert await coordinator._async_update_data() == {"active_host": "wifi"}
     assert factory.call_count == 1
+    # The failed check doubled the wait before the next one.
     now = 61.0
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    now = 121.0
     await coordinator._async_update_data()
 
     assert factory.call_count == 2
     updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
     assert updated[CONF_HOST] == "https://192.0.2.20"
+
+
+async def test_periodic_preferred_host_probe_backs_off_up_to_an_hour(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preferred address that stays unreachable is checked less and less often."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    now = 0.0
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: now, raising=False)
+    unavailable = _candidate_client(
+        "https://192.0.2.20/api/", authenticate_error=asyncio.TimeoutError()
+    )
+    monkeypatch.setattr(
+        coordinator_module, "NanoKVMClient", MagicMock(return_value=unavailable)
+    )
+
+    intervals = []
+    for _ in range(8):
+        await coordinator._async_update_data()
+        intervals.append(coordinator._preferred_host_check_interval)
+        now += coordinator._preferred_host_check_interval
+
+    assert intervals == [120, 240, 480, 960, 1920, 3600, 3600, 3600]
+
+
+@pytest.mark.parametrize(
+    ("preferred_host", "client_url", "pinned", "probe_url"),
+    [
+        ("http://192.0.2.20", "https://192.0.2.21/api/", True, "http://192.0.2.20/api/"),
+        ("192.0.2.20", "http://192.0.2.21/api/", False, "http://192.0.2.20/api/"),
+        ("192.0.2.20", "http://192.0.2.21/api/", True, "https://192.0.2.20/api/"),
+        ("192.0.2.20", "https://192.0.2.21/api/", False, "https://192.0.2.20/api/"),
+    ],
+)
+async def test_periodic_preferred_host_probe_uses_the_entry_transport(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+    preferred_host: str,
+    client_url: str,
+    pinned: bool,
+    probe_url: str,
+) -> None:
+    """An HTTP entry returns to its preferred host without a forced HTTPS probe."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    coordinator.config_entry.data["preferred_host"] = preferred_host
+    if not pinned:
+        del coordinator.config_entry.data[CONF_SSL_FINGERPRINT]
+    coordinator.client.url = URL(client_url)
+    preferred = _candidate_client(probe_url)
+    preferred.get_info.return_value = _device_info()
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    await coordinator._async_update_data()
+
+    assert factory.call_args.args == (probe_url,)
+    assert factory.call_args.kwargs["ssl_fingerprint"] == (
+        "AA" * 32 if pinned and probe_url.startswith("https://") else None
+    )
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == preferred_host
 
 
 async def test_periodic_preferred_host_probe_bounds_the_whole_request(
@@ -981,6 +1095,57 @@ async def test_core_fetch_populates_pcie_state(
         assert getattr(coordinator, attribute) == responses[attribute]
     assert coordinator.hdmi_capture is None
     assert coordinator.static_ip is None
+
+
+async def test_core_fetch_failure_keeps_the_previous_state(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """A poll that fails midway publishes none of its responses."""
+    _configure_required_client_responses(coordinator.client, hardware=HWVersion.PCIE)
+    previous_gpio = GetGpioRsp(pwr=False, hdd=False)
+    previous_swap = 128
+    coordinator.gpio_info = previous_gpio
+    coordinator.swap_size = previous_swap
+    coordinator.client.get_tailscale_status.side_effect = aiohttp.ClientConnectionError(
+        "reset"
+    )
+
+    with pytest.raises(aiohttp.ClientConnectionError):
+        await coordinator._async_fetch_core_data()
+
+    assert coordinator.gpio_info is previous_gpio
+    assert coordinator.swap_size == previous_swap
+
+
+async def test_core_fetch_bounds_concurrent_requests_and_cancels_on_failure(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """Endpoint calls overlap up to the limit and stop once one of them fails."""
+    active = 0
+    peak = 0
+    started = 0
+
+    async def call() -> None:
+        nonlocal active, peak, started
+        started += 1
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            if started == coordinator_module._MAX_CONCURRENT_REQUESTS:
+                raise NanoKVMError("endpoint failed")
+            await asyncio.sleep(0)
+        finally:
+            active -= 1
+
+    with pytest.raises(NanoKVMError, match="endpoint failed"):
+        await coordinator._async_fetch_concurrently(
+            {f"endpoint_{index}": call for index in range(12)}
+        )
+
+    assert peak == coordinator_module._MAX_CONCURRENT_REQUESTS
+    assert active == 0
+    assert started < 12
 
 
 async def test_core_fetch_skips_hardware_gated_endpoints_without_hardware(

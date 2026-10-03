@@ -1,15 +1,23 @@
 """Base NanoKVM entity class."""
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+import contextlib
 import logging
 from functools import cached_property
 
+import aiohttp
+
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from nanokvm.client import NanoKVMClient, NanoKVMError
+
 from .const import DOMAIN, INTEGRATION_TITLE
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .utils import api_base_url_to_web_url
+from .utils import api_base_url_to_web_url, device_sw_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +42,17 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
             "Created entity %s with unique_id: %s", unique_id_suffix, self._attr_unique_id
         )
 
+    @contextlib.asynccontextmanager
+    async def _async_device_action(self) -> AsyncIterator[NanoKVMClient]:
+        """Yield the shared client, reporting device failures as action errors."""
+        try:
+            async with self.coordinator.async_client() as client:
+                yield client
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise HomeAssistantError(
+                f"NanoKVM did not accept the request: {str(err) or type(err).__name__}"
+            ) from err
+
     @cached_property
     def device_info(self) -> DeviceInfo:
         """Return device information about this NanoKVM device."""
@@ -49,10 +68,9 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
             else "Unknown"
         )
 
-        sw_version = device_data.application
-        image = getattr(device_data, "image", None)
-        if image:
-            sw_version += f" (Image: {image})"
+        sw_version = device_sw_version(
+            device_data.application, getattr(device_data, "image", None)
+        )
 
         return DeviceInfo(
             identifiers={(DOMAIN, device_data.device_key)},

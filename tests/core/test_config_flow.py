@@ -616,12 +616,12 @@ async def test_existing_entry_requests_new_ssh_trust_without_identity_match(
 
 
 @pytest.mark.asyncio
-async def test_existing_entry_with_invalid_ssh_key_aborts_if_probe_fails(
+async def test_existing_entry_with_invalid_ssh_key_drops_it_if_probe_fails(
     flow: NanoKVMConfigFlow,
     config_entry_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An invalid stored key is not reused when a replacement cannot be probed."""
+    """An unverifiable key is dropped without losing the verified host update."""
     config_entry_mock.unique_id = "legacy.local."
     config_entry_mock.data.update(
         {
@@ -640,11 +640,42 @@ async def test_existing_entry_with_invalid_ssh_key_aborts_if_probe_fails(
         device_key="new-device-key",
     )
 
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "ssh_host_key_unavailable"
+    assert result == {"updated": True}
     prepare_key.assert_awaited_once_with(
         config_entry_mock.data | {CONF_HOST: "192.0.2.20"}
     )
+    flow.async_update_reload_and_abort.assert_called_once_with(
+        config_entry_mock,
+        data_updates={CONF_HOST: "192.0.2.20", CONF_SSH_HOST_KEY: None},
+        reason="already_configured",
+        reload_even_if_entry_is_unchanged=False,
+        unique_id="new-device-key",
+    )
+
+
+@pytest.mark.asyncio
+async def test_existing_entry_keeps_host_if_neither_identity_nor_ssh_key_verifies(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unauthenticated discovery cannot move an entry when SSH trust fails too."""
+    config_entry_mock.unique_id = "legacy.local."
+    config_entry_mock.data.update(
+        {
+            CONF_HOST: "legacy.local",
+            CONF_SSH_HOST_KEY: "legacy.local ssh-ed25519 b2xkLWtleQ==",
+            CONF_USE_STATIC_HOST: False,
+        }
+    )
+    monkeypatch.setattr(
+        config_flow_module, "async_prepare_ssh_host_key", AsyncMock(return_value=None)
+    )
+    flow.async_update_reload_and_abort = MagicMock()
+
+    result = await flow._async_handle_existing_entry(config_entry_mock, "192.0.2.20")
+
+    assert result["reason"] == "ssh_host_key_unavailable"
     flow.async_update_reload_and_abort.assert_not_called()
 
 
@@ -1540,6 +1571,7 @@ async def test_zeroconf_self_signed_certificate_prompts_and_resumes_with_pin(
                 None, OSError("self-signed certificate")
             )
         ),
+        ClientScenario(required_fingerprint="AABB"),
         ClientScenario(device_key="verified-key"),
     )
     flow.context = {"source": "zeroconf"}
@@ -1563,13 +1595,18 @@ async def test_zeroconf_self_signed_certificate_prompts_and_resumes_with_pin(
     fetch.assert_awaited_once_with("https://192.0.2.20/api/")
     assert client_type.instances[0].url == URL("https://192.0.2.20/api/")
     assert client_type.instances[0].ssl_fingerprint is None
+    # Only the public default credentials identify the still-untrusted host.
+    assert client_type.instances[1].ssl_fingerprint == "AABB"
+    assert client_type.instances[1].authenticate_calls == [
+        (DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    ]
 
     resumed = await flow.async_step_ssl_fingerprint({})
 
     assert resumed == {"confirm": True}
-    assert client_type.instances[1].url == URL("https://192.0.2.20/api/")
-    assert client_type.instances[1].ssl_fingerprint == "AABB"
-    assert client_type.instances[1].authenticate_calls == [
+    assert client_type.instances[2].url == URL("https://192.0.2.20/api/")
+    assert client_type.instances[2].ssl_fingerprint == "AABB"
+    assert client_type.instances[2].authenticate_calls == [
         (DEFAULT_USERNAME, DEFAULT_PASSWORD)
     ]
     assert flow.data[CONF_SSL_FINGERPRINT] == "AABB"
@@ -1750,7 +1787,10 @@ async def test_zeroconf_pro_wifi_replaces_unusable_ethernet_with_verified_identi
     assert updated_data[CONF_HOST] == "192.0.2.21"
     assert updated_data[CONF_SSL_FINGERPRINT] == "AABB"
     assert updated_data[CONF_SSH_HOST_KEY] == "192.0.2.21 ssh-ed25519 ZHVtbXk="
-    assert updated_data["preferred_host"] == "192.0.2.20"
+    # An unreachable address stays preferred; one reused by another device does not.
+    assert updated_data["preferred_host"] == (
+        "192.0.2.21" if current_host_error is None else "192.0.2.20"
+    )
 
 
 @pytest.mark.parametrize("announcement_host", ["192.0.2.20", "192.0.2.21"])
@@ -1801,7 +1841,7 @@ async def test_zeroconf_pro_keeps_wifi_if_preferred_host_is_unverified(
     monkeypatch: pytest.MonkeyPatch,
     preferred_scenario: ClientScenario,
 ) -> None:
-    """Failed or wrong-device probes cannot interrupt working fallback Wi-Fi."""
+    """Failed or wrong-device probes cannot move the entry off fallback Wi-Fi."""
     _prepare_configured_pro_discovery(
         flow, config_entry_mock, monkeypatch, host="192.0.2.21"
     )
@@ -1818,10 +1858,16 @@ async def test_zeroconf_pro_keeps_wifi_if_preferred_host_is_unverified(
     )
 
     assert result["reason"] == "already_configured"
-    flow.hass.config_entries.async_update_entry.assert_not_called()
     assert [str(client.url) for client in client_type.instances] == [
         "https://192.0.2.22/api/", "https://192.0.2.20/api/", "https://192.0.2.21/api/"
     ]
+    if preferred_scenario.auth_error is not None:
+        flow.hass.config_entries.async_update_entry.assert_not_called()
+        return
+    # Another device owns the preferred address now, so it is forgotten.
+    updated = flow.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == "192.0.2.21"
+    assert updated["preferred_host"] == "192.0.2.21"
 
 
 @pytest.mark.asyncio
@@ -1929,19 +1975,58 @@ async def test_zeroconf_pro_hostname_match_cannot_replace_another_device(
     install_client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A hostname hint cannot override a different authenticated device identity."""
+    """A different device behind a matching hint is offered as its own device."""
     _prepare_configured_pro_discovery(flow, config_entry_mock, monkeypatch)
     install_client(
         ClientScenario(device_key="other-device", required_fingerprint="AABB")
     )
+    flow._abort_if_unique_id_configured = MagicMock()
+    flow.async_step_user = AsyncMock(return_value={"user": True})
 
     result = await flow.async_step_zeroconf(
         _discovery_info("_ssh._tcp.local.", host="192.0.2.21")
     )
 
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "cannot_connect"
+    assert result == {"user": True}
+    flow.async_set_unique_id.assert_awaited_once_with("other-device")
+    flow._abort_if_unique_id_configured.assert_called_once_with()
+    assert config_entry_mock.data[CONF_HOST] == "192.0.2.20"
     flow.hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_pro_reused_address_updates_the_device_that_moved_there(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured device taking over another entry's address is matched by identity."""
+    _prepare_configured_pro_discovery(flow, config_entry_mock, monkeypatch)
+    moved_entry = SimpleNamespace(
+        unique_id="other-device",
+        data={CONF_HOST: "192.0.2.30", CONF_USE_STATIC_HOST: False},
+    )
+    flow._async_current_entries.return_value = [config_entry_mock, moved_entry]
+    install_client(
+        ClientScenario(device_key="other-device", required_fingerprint="AABB")
+    )
+    flow._async_select_discovery_host = AsyncMock(
+        return_value=("192.0.2.20", "192.0.2.30")
+    )
+    flow._async_handle_existing_entry = AsyncMock(return_value={"updated": True})
+
+    result = await flow.async_step_zeroconf(
+        _discovery_info("_ssh._tcp.local.", host="192.0.2.20")
+    )
+
+    assert result == {"updated": True}
+    flow._async_handle_existing_entry.assert_called_once_with(
+        moved_entry,
+        "192.0.2.20",
+        device_key="other-device",
+        preferred_host="192.0.2.30",
+    )
 
 
 @pytest.mark.asyncio
@@ -1979,7 +2064,10 @@ async def test_zeroconf_pro_unrelated_hostname_requires_its_own_tls_trust(
     _prepare_configured_pro_discovery(
         flow, config_entry_mock, monkeypatch, hostname="other-nanokvm"
     )
-    client_type = install_client(ClientScenario(required_fingerprint="AABB"))
+    client_type = install_client(
+        ClientScenario(required_fingerprint="AABB"),
+        ClientScenario(required_fingerprint="AABB"),
+    )
 
     result = await flow.async_step_zeroconf(
         _discovery_info("_ssh._tcp.local.", host="192.0.2.21")
@@ -1988,8 +2076,117 @@ async def test_zeroconf_pro_unrelated_hostname_requires_its_own_tls_trust(
     assert result["step_id"] == "ssl_fingerprint"
     assert client_type.instances[0].ssl_fingerprint is None
     assert client_type.instances[0].authenticate_calls == []
+    assert client_type.instances[1].authenticate_calls == [
+        (DEFAULT_USERNAME, DEFAULT_PASSWORD)
+    ]
     assert CONF_PASSWORD not in flow.data
     flow.hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("probe_error", "prompts"),
+    [
+        (NanoKVMAuthenticationFailure("custom credentials"), True),
+        (NanoKVMError("not a NanoKVM"), False),
+        (aiohttp.ClientConnectionError("closed"), False),
+        (asyncio.TimeoutError(), False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_zeroconf_ssh_host_gets_tls_prompt_only_if_it_is_a_nanokvm(
+    flow: NanoKVMConfigFlow,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: Exception,
+    prompts: bool,
+) -> None:
+    """An unrelated self-signed SSH host on the LAN never asks for TLS trust."""
+    install_client(
+        ClientScenario(required_fingerprint="AABB"),
+        ClientScenario(auth_error=probe_error, required_fingerprint="AABB"),
+    )
+    flow.context = {"source": "zeroconf"}
+    flow.async_set_unique_id = AsyncMock()
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_fetch_remote_fingerprint",
+        AsyncMock(return_value="AABB"),
+    )
+
+    result = await flow.async_step_zeroconf(_discovery_info("_ssh._tcp.local."))
+
+    if prompts:
+        assert result["step_id"] == "ssl_fingerprint"
+    else:
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "cannot_connect"
+        assert flow._discovered_fingerprint is None
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_ssh_host_without_readable_certificate_is_ignored(
+    flow: NanoKVMConfigFlow,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A host whose certificate cannot be fetched is dropped without a probe."""
+    client_type = install_client(ClientScenario(required_fingerprint="AABB"))
+    flow.context = {"source": "zeroconf"}
+    flow.async_set_unique_id = AsyncMock()
+    monkeypatch.setattr(
+        config_flow_module,
+        "async_fetch_remote_fingerprint",
+        AsyncMock(side_effect=OSError("handshake failed")),
+    )
+
+    result = await flow.async_step_zeroconf(_discovery_info("_ssh._tcp.local."))
+
+    assert result["reason"] == "cannot_connect"
+    assert len(client_type.instances) == 1
+
+
+@pytest.mark.asyncio
+async def test_zeroconf_pro_entry_without_pin_is_not_prompted_for_tls_trust(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    install_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured entry without a saved pin is left alone on a certificate error."""
+    _prepare_configured_pro_discovery(
+        flow, config_entry_mock, monkeypatch, host="http://192.0.2.20"
+    )
+    del config_entry_mock.data[CONF_SSL_FINGERPRINT]
+    client_type = install_client(ClientScenario(required_fingerprint="AABB"))
+
+    result = await flow.async_step_zeroconf(_discovery_info("_ssh._tcp.local."))
+
+    assert result["reason"] == "already_configured"
+    assert client_type.instances[0].authenticate_calls == []
+    flow.hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_select_discovery_host_verifies_http_entry_over_http(
+    flow: NanoKVMConfigFlow,
+    config_entry_mock: MagicMock,
+    install_client,
+) -> None:
+    """A host saved with an explicit HTTP scheme is not probed over HTTPS."""
+    config_entry_mock.data = {
+        CONF_HOST: "192.0.2.21",
+        "preferred_host": "http://192.0.2.20",
+        CONF_USERNAME: "operator",
+        CONF_PASSWORD: "saved-password",
+        CONF_SSL_FINGERPRINT: "AABB",
+    }
+    client_type = install_client(ClientScenario(device_key="verified-key"))
+
+    assert await flow._async_select_discovery_host(
+        config_entry_mock, "192.0.2.22", "verified-key"
+    ) == ("http://192.0.2.20", "http://192.0.2.20")
+    assert client_type.instances[0].url == URL("http://192.0.2.20/api/")
+    assert client_type.instances[0].ssl_fingerprint is None
 
 
 @pytest.mark.asyncio
