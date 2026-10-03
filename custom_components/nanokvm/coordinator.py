@@ -348,62 +348,43 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
             return True
         return False
 
-    async def _async_fetch_once(self) -> None:
-        """Fetch data once, handling reauthentication when needed."""
+    async def _async_fetch_once(self, *, recover: bool = True) -> None:
+        """Fetch data once, recovering the transport or session a single time."""
         try:
             return await self._async_fetch_with_client()
         except (
             aiohttp.ServerFingerprintMismatch,
             aiohttp.ClientConnectorCertificateError,
         ) as err:
-            if self.client.url.scheme == "http" and await self._async_failover_client(err):
-                return await self._async_fetch_with_error_mapping()
+            if (
+                recover
+                and self.client.url.scheme == "http"
+                and await self._async_failover_client(err)
+            ):
+                return await self._async_fetch_once(recover=False)
             raise ConfigEntryAuthFailed(
                 "SSL certificate changed for NanoKVM"
             ) from err
         except aiohttp.ClientConnectionError as err:
-            if await self._async_failover_client(err):
-                return await self._async_fetch_with_error_mapping()
+            if recover and await self._async_failover_client(err):
+                return await self._async_fetch_once(recover=False)
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
         except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
             if _is_auth_failure(err):
+                if not recover:
+                    raise ConfigEntryAuthFailed(
+                        "Stored NanoKVM credentials are no longer valid"
+                    ) from err
                 await self._async_reauthenticate_client(err)
-                return await self._async_fetch_with_error_mapping()
+                return await self._async_fetch_once(recover=False)
 
             if isinstance(err, aiohttp.ClientResponseError):
                 raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
             raise UpdateFailed(f"Authentication failed: {err}") from err
-
         except asyncio.TimeoutError:
             raise UpdateFailed(
                 _format_timeout_error("communicating with NanoKVM")
             ) from None
-        except (NanoKVMError, aiohttp.ClientError) as err:
-            raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
-
-    async def _async_fetch_with_error_mapping(self) -> None:
-        """Retry a fetch while mapping failures to Home Assistant exceptions."""
-        try:
-            return await self._async_fetch_with_client()
-        except (
-            aiohttp.ServerFingerprintMismatch,
-            aiohttp.ClientConnectorCertificateError,
-        ) as err:
-            raise ConfigEntryAuthFailed(
-                "SSL certificate changed for NanoKVM"
-            ) from err
-        except asyncio.TimeoutError:
-            raise UpdateFailed(
-                _format_timeout_error("communicating with NanoKVM")
-            ) from None
-        except (aiohttp.ClientResponseError, NanoKVMAuthenticationFailure) as err:
-            if _is_auth_failure(err):
-                raise ConfigEntryAuthFailed(
-                    "Stored NanoKVM credentials are no longer valid"
-                ) from err
-            if isinstance(err, aiohttp.ClientResponseError):
-                raise UpdateFailed(f"HTTP error with NanoKVM: {err}") from err
-            raise UpdateFailed(f"Authentication failed: {err}") from err
         except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
