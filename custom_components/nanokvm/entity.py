@@ -1,11 +1,19 @@
 """Base NanoKVM entity class."""
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+import contextlib
 import logging
 from functools import cached_property
 
+import aiohttp
+
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from nanokvm.client import NanoKVMClient, NanoKVMError
 
 from .const import DOMAIN, INTEGRATION_TITLE
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -33,6 +41,17 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
         _LOGGER.debug(
             "Created entity %s with unique_id: %s", unique_id_suffix, self._attr_unique_id
         )
+
+    @contextlib.asynccontextmanager
+    async def _async_device_action(self) -> AsyncIterator[NanoKVMClient]:
+        """Yield the shared client, reporting device failures as action errors."""
+        try:
+            async with self.coordinator.async_client() as client:
+                yield client
+        except (NanoKVMError, aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise HomeAssistantError(
+                f"NanoKVM did not accept the request: {str(err) or type(err).__name__}"
+            ) from err
 
     @cached_property
     def device_info(self) -> DeviceInfo:

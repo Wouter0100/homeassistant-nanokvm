@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 from homeassistant.exceptions import HomeAssistantError
+from nanokvm.client import NanoKVMError
+from nanokvm.ssh_client import NanoKVMSSHError
 from nanokvm.models import (
     DiskType,
     HidMode,
@@ -555,6 +557,49 @@ async def test_watchdog_switch_writes_both_states_through_collector() -> None:
     assert collector.set_watchdog_enabled.await_args_list[0].args == (True,)
     assert collector.set_watchdog_enabled.await_args_list[1].args == (False,)
     assert coordinator.async_request_refresh.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_watchdog_switch_translates_ssh_failures() -> None:
+    """An SSH failure while writing the watchdog file is a clear action error."""
+    coordinator = _coordinator()
+    collector = SimpleNamespace(
+        set_watchdog_enabled=AsyncMock(side_effect=NanoKVMSSHError("channel closed"))
+    )
+    coordinator.async_ensure_ssh_metrics_collector.return_value = collector
+    entity = switch_module.NanoKVMWatchdogSwitch(
+        coordinator,
+        switch_module.SSH_SWITCHES[0],
+    )
+
+    with pytest.raises(HomeAssistantError, match="channel closed"):
+        await entity.async_turn_on()
+    coordinator.async_request_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (NanoKVMError("device busy"), "device busy"),
+        (aiohttp.ClientConnectionError("connection reset"), "connection reset"),
+        (TimeoutError(), "TimeoutError"),
+    ],
+)
+async def test_entity_actions_translate_device_failures(
+    error: Exception, message: str
+) -> None:
+    """Device and transport failures surface as action errors, not unknown errors."""
+    coordinator = _coordinator()
+    coordinator.client.reboot_system = AsyncMock(side_effect=error)
+    entity = button_module.NanoKVMButton(
+        coordinator,
+        _description(button_module.BUTTONS, "reboot"),
+    )
+
+    with pytest.raises(HomeAssistantError, match=message):
+        await entity.async_press()
+    coordinator.async_request_refresh.assert_not_awaited()
 
 
 def _update_entity(coordinator: SimpleNamespace) -> update_module.NanoKVMUpdate:

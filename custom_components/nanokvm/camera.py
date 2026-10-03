@@ -150,7 +150,7 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
         try:
             return await self._async_read_snapshot_frame()
         except Exception as err:
-            _LOGGER.error("Error fetching still image: %s", err)
+            _LOGGER.warning("Error fetching still image: %s", err)
             return None
 
     async def async_handle_async_webrtc_offer(

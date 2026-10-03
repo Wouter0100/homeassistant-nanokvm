@@ -249,7 +249,7 @@ class NanoKVMNumber(NanoKVMEntity, NumberEntity):
             )
 
         try:
-            async with self.coordinator.async_client():
+            async with self._async_device_action():
                 await self.entity_description.set_value_fn(self.coordinator, value)
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err
