@@ -2,6 +2,12 @@ push_button:
   name: Push Button
   description: Simulate pushing a hardware button on the NanoKVM device.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -30,6 +36,12 @@ paste_text:
   name: Paste Text
   description: Paste text via HID keyboard simulation.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -47,6 +59,12 @@ reboot:
   name: Reboot System
   description: Reboot the NanoKVM device.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -57,6 +75,12 @@ reset_hdmi:
   name: Reset HDMI
   description: Reset the HDMI connection (relevant for PCIe version).
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -67,6 +91,12 @@ reset_hid:
   name: Reset HID
   description: Reset the HID subsystem.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -77,6 +107,12 @@ wake_on_lan:
   name: Wake on LAN
   description: Send a Wake-on-LAN packet to the specified MAC address.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -94,6 +130,12 @@ set_mouse_jiggler:
   name: Set Mouse Jiggler
   description: Configure the mouse jiggler state and mode.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -119,6 +161,12 @@ set_led_strip:
   name: Set LED Strip
   description: Configure NanoKVM Pro LED strip settings.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -159,6 +207,12 @@ scan_wifi:
   name: Scan Wi-Fi
   description: Scan nearby Wi-Fi networks and return the NanoKVM Pro response.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -169,6 +223,12 @@ list_images:
   name: List Images
   description: List images available on the NanoKVM.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -179,6 +239,12 @@ is_image_download_enabled:
   name: Is Image Download Enabled
   description: Return whether image downloading is enabled on the NanoKVM.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -189,6 +255,12 @@ get_image_download_status:
   name: Get Image Download Status
   description: Return the current NanoKVM image download status.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.
@@ -199,6 +271,12 @@ list_custom_edids:
   name: List Custom EDIDs
   description: List custom EDIDs available on a NanoKVM Pro.
   fields:
+    device_id:
+      name: Device
+      description: Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured.
+      selector:
+        device:
+          integration: nanokvm
     host:
       name: Host
       description: Optional target host. Required when multiple NanoKVM devices are configured.

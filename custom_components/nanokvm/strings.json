@@ -141,6 +141,10 @@
       "name": "Set LED Strip",
       "description": "Configure NanoKVM Pro LED strip settings.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
@@ -167,6 +171,10 @@
       "name": "Scan Wi-Fi",
       "description": "Scan nearby Wi-Fi networks and return the NanoKVM Pro response.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
@@ -177,6 +185,10 @@
       "name": "List Images",
       "description": "List images available on the NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
@@ -187,6 +199,10 @@
       "name": "Is Image Download Enabled",
       "description": "Return whether image downloading is enabled on the NanoKVM.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
@@ -197,6 +213,10 @@
       "name": "Get Image Download Status",
       "description": "Return the current NanoKVM image download status.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."
@@ -207,6 +227,10 @@
       "name": "List Custom EDIDs",
       "description": "List custom EDIDs available on a NanoKVM Pro.",
       "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "Optional target NanoKVM device. Use this or the host when multiple NanoKVM devices are configured."
+        },
         "host": {
           "name": "Host",
           "description": "Optional target host. Required when multiple NanoKVM devices are configured."

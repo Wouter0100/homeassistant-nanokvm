@@ -1,8 +1,10 @@
 # NanoKVM Service Examples
 
 All service calls use the `nanokvm` domain.
-The `host` field is optional when one NanoKVM is configured and required when
-multiple NanoKVM devices are configured.
+No target is needed when one NanoKVM is configured. With multiple NanoKVM
+devices, target one with `device_id` (recommended, as it keeps working when
+the device changes address) or with `host`. `host` matches the entry's current
+address and its preferred address.
 
 Response services return structured data. In automations or scripts, use
 `response_variable` when you need to consume the returned data.
@@ -13,6 +15,7 @@ Simulate pressing the physical power or reset button.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 - `button_type`: `power` or `reset` (required)
 - `duration`: `100-5000` milliseconds (optional, default `100`)
@@ -33,6 +36,7 @@ Paste text through HID keyboard emulation.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 - `text`: ASCII printable text (required)
 
@@ -51,6 +55,7 @@ Reboot the NanoKVM device itself.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -67,6 +72,7 @@ Reset the HDMI subsystem (primarily relevant for PCIe hardware).
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -83,6 +89,7 @@ Reset the HID subsystem.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -99,6 +106,7 @@ Send a Wake-on-LAN packet to a target MAC address.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 - `mac`: target MAC address (required)
 
@@ -117,6 +125,7 @@ Enable/disable mouse jiggler and choose mode.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 - `enabled`: `true` or `false` (required)
 - `mode`: `absolute` or `relative` (optional, default `absolute`)
@@ -137,6 +146,7 @@ Configure NanoKVM Pro LED strip state.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 - `on`: `true` or `false` (optional)
 - `brightness`: brightness percentage from `0` to `100` (optional)
@@ -169,6 +179,7 @@ Scan nearby Wi-Fi networks and return the NanoKVM Pro response.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -186,6 +197,7 @@ List images available on the NanoKVM.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -203,6 +215,7 @@ Return whether image downloading is enabled on the NanoKVM.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -220,6 +233,7 @@ Return the current NanoKVM image download status.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
@@ -237,6 +251,7 @@ List custom EDIDs available on a NanoKVM Pro.
 
 Parameters:
 
+- `device_id`: optional target device; alternative to `host`
 - `host`: optional target host; required when multiple NanoKVM devices are configured
 
 Example:
