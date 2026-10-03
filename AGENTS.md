@@ -35,6 +35,9 @@ The integration follows the standard structure for a Home Assistant
 
 - **`coordinator.py`**: Hosts `NanoKVMDataUpdateCoordinator`.
   - Central polling logic (`_async_update_data`) and API fetch helpers.
+  - Fetches independent core endpoints a few at a time and publishes their
+    results together, so a failed poll keeps the previous state.
+  - Keeps the device registry name and firmware version current.
   - Handles reauthentication, storage-state fetches, optional NanoKVM Pro
     state, dynamic media/network/SSH entities, and SSH metric refresh.
   - Gates non-Pro-only endpoints such as swap size, CD-ROM state, HDMI output,
@@ -46,10 +49,14 @@ The integration follows the standard structure for a Home Assistant
 
 - **`entity.py`**: Defines `NanoKVMEntity` base class.
   - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
+  - `_async_device_action` wraps client access for actions and reports device
+    failures as `HomeAssistantError`.
 
 - **`services.py`**: Service schemas, registration, and handlers.
   - Implements all `nanokvm.*` service behavior, response services, and
     unregister logic.
+  - Targets a device by `device_id`, or by `host` matched against the entry's
+    current and preferred hosts.
 
 - **`config_flow.py`**: Manages the user configuration flow in Home Assistant.
   - Implements `ConfigFlow` for manual setup and zeroconf discovery.
@@ -113,8 +120,8 @@ Each platform follows a similar pattern:
    Platform setup iterates entity descriptions and creates entity instances.
 5. **Entity class**:
    Entity classes inherit a Home Assistant base class plus `NanoKVMEntity`.
-   Action methods wrap client calls in `async with self.coordinator.client:`
-   for correct session handling.
+   Action methods wrap client calls in `async with self._async_device_action():`
+   for serialized client access and consistent error reporting.
 
 ### Services
 

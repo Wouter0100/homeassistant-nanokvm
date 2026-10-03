@@ -1086,6 +1086,57 @@ async def test_core_fetch_populates_pcie_state(
     assert coordinator.static_ip is None
 
 
+async def test_core_fetch_failure_keeps_the_previous_state(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """A poll that fails midway publishes none of its responses."""
+    _configure_required_client_responses(coordinator.client, hardware=HWVersion.PCIE)
+    previous_gpio = GetGpioRsp(pwr=False, hdd=False)
+    previous_swap = 128
+    coordinator.gpio_info = previous_gpio
+    coordinator.swap_size = previous_swap
+    coordinator.client.get_tailscale_status.side_effect = aiohttp.ClientConnectionError(
+        "reset"
+    )
+
+    with pytest.raises(aiohttp.ClientConnectionError):
+        await coordinator._async_fetch_core_data()
+
+    assert coordinator.gpio_info is previous_gpio
+    assert coordinator.swap_size == previous_swap
+
+
+async def test_core_fetch_bounds_concurrent_requests_and_cancels_on_failure(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """Endpoint calls overlap up to the limit and stop once one of them fails."""
+    active = 0
+    peak = 0
+    started = 0
+
+    async def call() -> None:
+        nonlocal active, peak, started
+        started += 1
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            if started == coordinator_module._MAX_CONCURRENT_REQUESTS:
+                raise NanoKVMError("endpoint failed")
+            await asyncio.sleep(0)
+        finally:
+            active -= 1
+
+    with pytest.raises(NanoKVMError, match="endpoint failed"):
+        await coordinator._async_fetch_concurrently(
+            {f"endpoint_{index}": call for index in range(12)}
+        )
+
+    assert peak == coordinator_module._MAX_CONCURRENT_REQUESTS
+    assert active == 0
+    assert started < 12
+
+
 async def test_core_fetch_skips_hardware_gated_endpoints_without_hardware(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:

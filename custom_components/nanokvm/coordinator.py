@@ -91,6 +91,19 @@ _APP_VERSION_REQUEST_TIMEOUT_SECONDS = 45
 _APP_VERSION_CACHE_SECONDS = 300
 _APP_VERSION_FAILURE_CACHE_SECONDS = 60
 _WATCHDOG_MIN_VERSION = AwesomeVersion("2.2.2")
+_MAX_CONCURRENT_REQUESTS = 4
+_GATED_CORE_ATTRIBUTES = (
+    "virtual_device_info",
+    "hdmi_state",
+    "swap_size",
+    "hdmi_capture",
+    "hdmi_passthrough",
+    "low_power",
+    "led_strip",
+    "lcd_time_format",
+    "time_status",
+    "static_ip",
+)
 _INVALID_FILE_CONTENT_CODE = -2
 _INVALID_FILE_CONTENT_MESSAGE = "invalid file content"
 _ResponseT = TypeVar("_ResponseT")
@@ -628,76 +641,79 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             )
             return None
 
+    async def _async_fetch_concurrently(
+        self, calls: dict[str, Callable[[], Awaitable[Any]]]
+    ) -> dict[str, Any]:
+        """Run independent endpoint calls a few at a time and return all results."""
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_REQUESTS)
+
+        async def run(call: Callable[[], Awaitable[Any]]) -> Any:
+            async with semaphore:
+                return await call()
+
+        tasks = [asyncio.ensure_future(run(call)) for call in calls.values()]
+        try:
+            results = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        return dict(zip(calls, results))
+
     async def _async_fetch_core_data(self) -> None:
         """Fetch required API data used by entities."""
-        self.device_info = await self.client.get_info()
-        self.hostname_info = await self.client.get_hostname()
-        self.hardware_info = await self.client.get_hardware()
-        self.gpio_info = await self.client.get_gpio()
+        client = self.client
+        # Hardware identity gates the endpoints below and never changes per device.
+        self.hardware_info = await client.get_hardware()
+
+        def optional(
+            endpoint: str, call: Callable[[], Awaitable[Any]]
+        ) -> Callable[[], Awaitable[Any]]:
+            return lambda: self._fetch_optional(endpoint, call)
+
+        calls: dict[str, Callable[[], Awaitable[Any]]] = {
+            "device_info": client.get_info,
+            "hostname_info": client.get_hostname,
+            "gpio_info": client.get_gpio,
+            "ssh_state": client.get_ssh_state,
+            "mdns_state": client.get_mdns_state,
+            "hid_mode": client.get_hid_mode,
+            "oled_info": self._fetch_oled_info,
+            "wifi_status": client.get_wifi_status,
+            "mouse_jiggler_state": client.get_mouse_jiggler_state,
+            "tailscale_status": client.get_tailscale_status,
+        }
         if self.hardware_info is not None:
-            self.virtual_device_info = await self._fetch_optional(
-                "/vm/device/virtual", self.client.get_virtual_device_status
+            calls["virtual_device_info"] = optional(
+                "/vm/device/virtual", client.get_virtual_device_status
             )
-        else:
-            self.virtual_device_info = None
-        self.ssh_state = await self.client.get_ssh_state()
-        self.mdns_state = await self.client.get_mdns_state()
-        self.hid_mode = await self.client.get_hid_mode()
-        self.oled_info = await self._fetch_oled_info()
-        self.wifi_status = await self.client.get_wifi_status()
         if self.supports_hdmi_endpoint:
-            self.hdmi_state = await self._fetch_optional(
-                "/vm/hdmi", self.client.get_hdmi_state
-            )
-        else:
-            self.hdmi_state = None
-        self.mouse_jiggler_state = await self.client.get_mouse_jiggler_state()
+            calls["hdmi_state"] = optional("/vm/hdmi", client.get_hdmi_state)
         if self.supports_swap_size:
-            self.swap_size = await self._fetch_optional(
-                "/vm/swap", self.client.get_swap_size
-            )
-        else:
-            self.swap_size = None
-        self.tailscale_status = await self.client.get_tailscale_status()
-        await self._async_fetch_pro_data()
+            calls["swap_size"] = optional("/vm/swap", client.get_swap_size)
+        if self.is_pro_hardware:
+            calls |= {
+                "hdmi_capture": optional("/vm/hdmi/capture", client.get_hdmi_capture),
+                "hdmi_passthrough": optional(
+                    "/vm/hdmi/passthrough", client.get_hdmi_passthrough
+                ),
+                "low_power": optional("/vm/low-power", client.get_low_power),
+                "led_strip": optional("/vm/ledstrip/get", client.get_led_strip),
+                "lcd_time_format": optional(
+                    "/vm/lcd/time/format", client.get_lcd_time_format
+                ),
+                "time_status": optional("/vm/time/status", client.get_time_status),
+                "static_ip": optional("/network/static-ip", client.get_static_ip),
+            }
 
-    async def _async_fetch_pro_data(self) -> None:
-        """Fetch optional NanoKVM Pro state used by entities."""
-        if not self.is_pro_hardware:
-            self._clear_pro_data()
-            return
+        results = await self._async_fetch_concurrently(calls)
 
-        self.hdmi_capture = await self._fetch_optional(
-            "/vm/hdmi/capture", self.client.get_hdmi_capture
-        )
-        self.hdmi_passthrough = await self._fetch_optional(
-            "/vm/hdmi/passthrough", self.client.get_hdmi_passthrough
-        )
-        self.low_power = await self._fetch_optional(
-            "/vm/low-power", self.client.get_low_power
-        )
-        self.led_strip = await self._fetch_optional(
-            "/vm/ledstrip/get", self.client.get_led_strip
-        )
-        self.lcd_time_format = await self._fetch_optional(
-            "/vm/lcd/time/format", self.client.get_lcd_time_format
-        )
-        self.time_status = await self._fetch_optional(
-            "/vm/time/status", self.client.get_time_status
-        )
-        self.static_ip = await self._fetch_optional(
-            "/network/static-ip", self.client.get_static_ip
-        )
-
-    def _clear_pro_data(self) -> None:
-        """Clear NanoKVM Pro-only state."""
-        self.hdmi_capture = None
-        self.hdmi_passthrough = None
-        self.low_power = None
-        self.led_strip = None
-        self.lcd_time_format = None
-        self.time_status = None
-        self.static_ip = None
+        # Publish everything together so a failed poll leaves the last state intact.
+        for attribute in _GATED_CORE_ATTRIBUTES:
+            setattr(self, attribute, None)
+        for attribute, value in results.items():
+            setattr(self, attribute, value)
 
     def _async_schedule_app_version_refresh(self) -> None:
         """Refresh application version info outside the critical poll path."""
@@ -755,36 +771,23 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
+        mounted_image = GetMountedImageRsp(file="", cdrom=False, readOnly=False)
+        cdrom_status = GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
         if self.hid_mode and self.hid_mode.mode == HidMode.NORMAL:
             try:
-                self.mounted_image = await self.client.get_mounted_image()
+                mounted_image = await self.client.get_mounted_image()
             except NanoKVMApiError as err:
                 _LOGGER.debug(
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
-                self.mounted_image = GetMountedImageRsp(
-                    file="", cdrom=False, readOnly=False
-                )
 
             if self.supports_cdrom_endpoint:
-                try:
-                    self.cdrom_status = await self._fetch_optional(
-                        "/storage/cdrom", self.client.get_cdrom_status
-                    )
-                except NanoKVMApiError as err:
-                    _LOGGER.debug(
-                        "Failed to get CD-ROM status, retrieving default value: %s", err
-                    )
-                    self.cdrom_status = GetCdRomRsp(cdrom=0)
-            else:
-                self.cdrom_status = None
-        else:
-            self.mounted_image = GetMountedImageRsp(
-                file="", cdrom=False, readOnly=False
-            )
-            self.cdrom_status = (
-                GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
-            )
+                cdrom_status = await self._fetch_optional(
+                    "/storage/cdrom", self.client.get_cdrom_status
+                )
+
+        self.mounted_image = mounted_image
+        self.cdrom_status = cdrom_status
 
     async def _async_refresh_ssh_data(self) -> None:
         """Fetch or clear SSH metrics depending on SSH state."""
