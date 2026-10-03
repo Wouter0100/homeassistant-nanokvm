@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from nanokvm.models import GetLedStripRsp
 
@@ -12,6 +13,9 @@ from .const import (
     LED_BRIGHTNESS_MIN,
 )
 
+if TYPE_CHECKING:
+    from .coordinator import NanoKVMDataUpdateCoordinator
+
 
 @dataclass(frozen=True, slots=True)
 class LedStripConfig:
@@ -21,6 +25,18 @@ class LedStripConfig:
     brightness: int
     horizontal_count: int
     vertical_count: int
+
+
+@dataclass(slots=True)
+class LedBrightnessRequest:
+    """Brightness last sent to the device and what it reported afterwards.
+
+    NanoKVM Pro can report a lower brightness than the one it stores. Writing
+    the reported value back with an unrelated change would lower the setting.
+    """
+
+    requested: int
+    reported: int | None = None
 
 
 def max_horizontal_count(vertical_count: int) -> int:
@@ -80,3 +96,48 @@ def build_led_strip_config(
     )
     validate_led_strip_config(config)
     return config
+
+
+def note_reported_led_strip(
+    coordinator: NanoKVMDataUpdateCoordinator, reported: GetLedStripRsp | None
+) -> None:
+    """Record the brightness reported by the first poll after a write."""
+    request = getattr(coordinator, "led_brightness_request", None)
+    if request is not None and request.reported is None and reported is not None:
+        request.reported = reported.brightness
+
+
+async def async_set_led_strip(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    *,
+    on: bool | None = None,
+    brightness: int | None = None,
+    horizontal_count: int | None = None,
+    vertical_count: int | None = None,
+) -> None:
+    """Send a partial LED strip update, keeping the other settings as requested."""
+    current = coordinator.led_strip
+    request = getattr(coordinator, "led_brightness_request", None)
+    if (
+        brightness is None
+        and current is not None
+        and request is not None
+        and request.reported in (None, current.brightness)
+    ):
+        # Nothing else changed the brightness since the last write.
+        brightness = request.requested
+
+    config = build_led_strip_config(
+        current,
+        on=on,
+        brightness=brightness,
+        horizontal_count=horizontal_count,
+        vertical_count=vertical_count,
+    )
+    await coordinator.client.set_led_strip(
+        on=config.on,
+        brightness=config.brightness,
+        horizontal_count=config.horizontal_count,
+        vertical_count=config.vertical_count,
+    )
+    coordinator.led_brightness_request = LedBrightnessRequest(config.brightness)

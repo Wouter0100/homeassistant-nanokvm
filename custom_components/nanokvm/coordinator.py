@@ -72,6 +72,7 @@ from .const import (
     SIGNAL_NEW_SSH_SENSORS,
     SIGNAL_NEW_SSH_SWITCHES,
 )
+from .led import LedBrightnessRequest, note_reported_led_strip
 from .ssh_metrics import SSHMetricsCollector
 from .ssh_host_keys import retarget_known_hosts_line
 from .utils import (
@@ -199,6 +200,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self.hdmi_passthrough = None
         self.low_power = None
         self.led_strip = None
+        self.led_brightness_request: LedBrightnessRequest | None = None
         self.lcd_time_format = None
         self.time_status = None
         self.static_ip = None
@@ -714,6 +716,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             setattr(self, attribute, None)
         for attribute, value in results.items():
             setattr(self, attribute, value)
+        note_reported_led_strip(self, self.led_strip)
 
     def _async_schedule_app_version_refresh(self) -> None:
         """Refresh application version info outside the critical poll path."""

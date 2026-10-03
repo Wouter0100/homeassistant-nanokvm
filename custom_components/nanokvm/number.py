@@ -26,7 +26,7 @@ from .const import (
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
-from .led import build_led_strip_config, max_horizontal_count, max_vertical_count
+from .led import async_set_led_strip, max_horizontal_count, max_vertical_count
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,39 +96,21 @@ async def _set_led_brightness(
     coordinator: NanoKVMDataUpdateCoordinator, value: float
 ) -> None:
     """Set LED strip brightness while preserving other LED settings."""
-    config = build_led_strip_config(coordinator.led_strip, brightness=int(value))
-    await coordinator.client.set_led_strip(
-        on=config.on,
-        brightness=config.brightness,
-        horizontal_count=config.horizontal_count,
-        vertical_count=config.vertical_count,
-    )
+    await async_set_led_strip(coordinator, brightness=int(value))
 
 
 async def _set_led_horizontal_count(
     coordinator: NanoKVMDataUpdateCoordinator, value: float
 ) -> None:
     """Set horizontal LED bead count while preserving other LED settings."""
-    config = build_led_strip_config(coordinator.led_strip, horizontal_count=int(value))
-    await coordinator.client.set_led_strip(
-        on=config.on,
-        brightness=config.brightness,
-        horizontal_count=config.horizontal_count,
-        vertical_count=config.vertical_count,
-    )
+    await async_set_led_strip(coordinator, horizontal_count=int(value))
 
 
 async def _set_led_vertical_count(
     coordinator: NanoKVMDataUpdateCoordinator, value: float
 ) -> None:
     """Set vertical LED bead count while preserving other LED settings."""
-    config = build_led_strip_config(coordinator.led_strip, vertical_count=int(value))
-    await coordinator.client.set_led_strip(
-        on=config.on,
-        brightness=config.brightness,
-        horizontal_count=config.horizontal_count,
-        vertical_count=config.vertical_count,
-    )
+    await async_set_led_strip(coordinator, vertical_count=int(value))
 
 
 NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (

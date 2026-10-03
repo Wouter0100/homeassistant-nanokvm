@@ -55,7 +55,7 @@ from .const import (
     SERVICE_WAKE_ON_LAN,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .led import build_led_strip_config
+from .led import async_set_led_strip
 from .utils import host_match_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -378,8 +378,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         ) -> None:
             _ensure_pro(coordinator, SERVICE_SET_LED_STRIP)
             try:
-                config = build_led_strip_config(
-                    coordinator.led_strip,
+                await async_set_led_strip(
+                    coordinator,
                     on=call.data.get(ATTR_ON),
                     brightness=call.data.get(ATTR_BRIGHTNESS),
                     horizontal_count=call.data.get(ATTR_HORIZONTAL_COUNT),
@@ -387,13 +387,6 @@ def async_register_services(hass: HomeAssistant) -> None:
                 )
             except ValueError as err:
                 raise HomeAssistantError(str(err)) from err
-
-            await client.set_led_strip(
-                on=config.on,
-                brightness=config.brightness,
-                horizontal_count=config.horizontal_count,
-                vertical_count=config.vertical_count,
-            )
             _LOGGER.debug("LED strip settings updated on %s", host)
 
         await _execute_service(call, SERVICE_SET_LED_STRIP, service_logic)

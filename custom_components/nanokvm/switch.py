@@ -32,7 +32,7 @@ from .const import (
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
-from .led import build_led_strip_config
+from .led import async_set_led_strip
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,16 +119,9 @@ async def _set_led_strip_on(
 ) -> None:
     """Set LED strip power while preserving other LED settings."""
     try:
-        config = build_led_strip_config(coordinator.led_strip, on=enabled)
+        await async_set_led_strip(coordinator, on=enabled)
     except ValueError as err:
         raise HomeAssistantError(str(err)) from err
-
-    await coordinator.client.set_led_strip(
-        on=config.on,
-        brightness=config.brightness,
-        horizontal_count=config.horizontal_count,
-        vertical_count=config.vertical_count,
-    )
 
 
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
