@@ -759,9 +759,8 @@ async def test_fetch_with_client_authenticates_and_runs_fetch_groups(
     coordinator._async_maybe_create_network_entities = MagicMock()
     coordinator._async_maybe_create_media_entities = MagicMock()
     coordinator._async_schedule_app_version_refresh = MagicMock()
-    coordinator._build_update_data = MagicMock(return_value={"ready": True})
 
-    assert await coordinator._async_fetch_with_client() == {"ready": True}
+    await coordinator._async_fetch_with_client()
     coordinator.client.authenticate.assert_awaited_once_with("admin", "password")
     coordinator._async_fetch_core_data.assert_awaited_once_with()
     coordinator._async_fetch_storage_data.assert_awaited_once_with()
@@ -1274,44 +1273,6 @@ async def test_storage_fetch_uses_defaults_outside_normal_hid_mode(
     )
     assert coordinator.cdrom_status == expected_cdrom
     coordinator.client.get_mounted_image.assert_not_awaited()
-
-
-def test_build_update_data_returns_complete_state_snapshot(
-    coordinator: NanoKVMDataUpdateCoordinator,
-) -> None:
-    """The coordinator snapshot includes every entity-facing API field."""
-    keys = (
-        "device_info",
-        "hardware_info",
-        "gpio_info",
-        "virtual_device_info",
-        "ssh_state",
-        "mdns_state",
-        "hid_mode",
-        "oled_info",
-        "wifi_status",
-        "application_version_info",
-        "mounted_image",
-        "cdrom_status",
-        "mouse_jiggler_state",
-        "hdmi_state",
-        "hdmi_capture",
-        "hdmi_passthrough",
-        "low_power",
-        "led_strip",
-        "lcd_time_format",
-        "time_status",
-        "static_ip",
-        "swap_size",
-        "tailscale_status",
-        "hostname_info",
-        "watchdog_enabled",
-    )
-    expected = {key: object() for key in keys}
-    for key, value in expected.items():
-        setattr(coordinator, key, value)
-
-    assert coordinator._build_update_data() == expected
 
 
 @pytest.mark.parametrize(

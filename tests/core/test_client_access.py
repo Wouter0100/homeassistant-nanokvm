@@ -140,9 +140,8 @@ def test_coordinator_poll_uses_serialized_client_access() -> None:
         coordinator._async_maybe_create_network_entities = MagicMock()
         coordinator._async_maybe_create_media_entities = MagicMock()
         coordinator._async_schedule_app_version_refresh = MagicMock()
-        coordinator._build_update_data = MagicMock(return_value={"ready": True})
 
-        assert await coordinator._async_fetch_with_client() == {"ready": True}
+        await coordinator._async_fetch_with_client()
         coordinator.async_client.assert_called_once_with()
 
     asyncio.run(run_test())

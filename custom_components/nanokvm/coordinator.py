@@ -132,7 +132,7 @@ def _format_timeout_error(action: str) -> str:
     return f"Timed out {action} after {_UPDATE_TIMEOUT_SECONDS} seconds"
 
 
-class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
+class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
     """Class to manage fetching NanoKVM data."""
 
     config_entry: ConfigEntry
@@ -253,12 +253,12 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             async with self.client as client:
                 yield client
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> None:
         """Fetch data from NanoKVM."""
         if await self._async_restore_preferred_host():
             # The entry will reload with the verified preferred endpoint.
             # Avoid polling its superseded client while that reload is pending.
-            return self._build_update_data()
+            return
         use_static_host = self.config_entry.data.get(CONF_USE_STATIC_HOST, False)
         current_host = self.config_entry.data[CONF_HOST]
 
@@ -379,7 +379,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             return True
         return False
 
-    async def _async_fetch_once(self) -> dict[str, Any]:
+    async def _async_fetch_once(self) -> None:
         """Fetch data once, handling reauthentication when needed."""
         try:
             return await self._async_fetch_with_client()
@@ -412,7 +412,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
-    async def _async_fetch_with_error_mapping(self) -> dict[str, Any]:
+    async def _async_fetch_with_error_mapping(self) -> None:
         """Retry a fetch while mapping failures to Home Assistant exceptions."""
         try:
             return await self._async_fetch_with_client()
@@ -438,7 +438,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         except (NanoKVMError, aiohttp.ClientError) as err:
             raise UpdateFailed(f"Error communicating with NanoKVM: {err}") from err
 
-    async def _async_fetch_with_client(self) -> dict[str, Any]:
+    async def _async_fetch_with_client(self) -> None:
         """Fetch data using the current client instance."""
         async with self.async_client() as client:
             async with asyncio.timeout(_UPDATE_TIMEOUT_SECONDS):
@@ -453,7 +453,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self._async_sync_device_registry()
         await self._async_refresh_ssh_data()
         self._async_schedule_app_version_refresh()
-        return self._build_update_data()
 
     def _async_sync_device_registry(self) -> None:
         """Keep the registered device name and firmware current between reloads."""
@@ -809,36 +808,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 raise
         else:
             await self._async_clear_ssh_data()
-
-    def _build_update_data(self) -> dict[str, Any]:
-        """Build coordinator data payload for entities."""
-        return {
-            "device_info": self.device_info,
-            "hardware_info": self.hardware_info,
-            "gpio_info": self.gpio_info,
-            "virtual_device_info": self.virtual_device_info,
-            "ssh_state": self.ssh_state,
-            "mdns_state": self.mdns_state,
-            "hid_mode": self.hid_mode,
-            "oled_info": self.oled_info,
-            "wifi_status": self.wifi_status,
-            "application_version_info": self.application_version_info,
-            "mounted_image": self.mounted_image,
-            "cdrom_status": self.cdrom_status,
-            "mouse_jiggler_state": self.mouse_jiggler_state,
-            "hdmi_state": self.hdmi_state,
-            "hdmi_capture": self.hdmi_capture,
-            "hdmi_passthrough": self.hdmi_passthrough,
-            "low_power": self.low_power,
-            "led_strip": self.led_strip,
-            "lcd_time_format": self.lcd_time_format,
-            "time_status": self.time_status,
-            "static_ip": self.static_ip,
-            "swap_size": self.swap_size,
-            "tailscale_status": self.tailscale_status,
-            "hostname_info": self.hostname_info,
-            "watchdog_enabled": self.watchdog_enabled,
-        }
 
     def _clear_ssh_runtime_state(self) -> None:
         """Clear SSH-derived runtime state from the coordinator."""
