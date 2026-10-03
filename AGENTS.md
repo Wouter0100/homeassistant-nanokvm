@@ -39,6 +39,8 @@ The integration follows the standard structure for a Home Assistant
     state, dynamic media/network/SSH entities, and SSH metric refresh.
   - Gates non-Pro-only endpoints such as swap size, CD-ROM state, HDMI output,
     and non-Pro virtual disk controls.
+  - Checks a fallback Pro entry's saved preferred host at most once per minute
+    and restores it only after authenticating and verifying its device key.
 
 - **`entity.py`**: Defines `NanoKVMEntity` base class.
   - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
@@ -53,6 +55,9 @@ The integration follows the standard structure for a Home Assistant
     creating the config entry.
   - Handles auth step, SSL fingerprint confirmation, static-host option, and
     legacy/new unique-id matching.
+  - Matches Pro discovery across advertised addresses and API-reported device
+    hostnames and reuses saved TLS trust. Saves the chosen host as preferred,
+    keeps working fallbacks, and returns to the preferred host when verified.
 
 - **`const.py`**: Central repository for shared constants (domain, service
   names, attributes, defaults, icons, and signal names).

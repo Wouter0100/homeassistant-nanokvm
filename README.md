@@ -60,6 +60,7 @@ Notes:
 - If no scheme is provided, the integration tries `http` first and then `https`.
 - Self-signed HTTPS certificates are supported by confirming the presented fingerprint during setup or reauthentication.
 - When **Use static host only** is disabled, zeroconf rediscovery can refresh the stored host/IP.
+- NanoKVM Pro keeps the address chosen during setup as its preferred address. If discovery switches to another interface, it checks for the preferred address once per minute and returns when the same device is reachable there.
 - Coordinator polling interval is 30 seconds.
 
 ## Known Limitations

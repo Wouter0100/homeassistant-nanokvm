@@ -5,6 +5,7 @@ INTEGRATION_TITLE = "NanoKVM"
 
 # Configuration
 CONF_HOST = "host"
+CONF_PREFERRED_HOST = "preferred_host"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_USE_STATIC_HOST = "use_static_host"
@@ -16,6 +17,8 @@ CONF_TRUST_SSH_HOST_KEY = "trust_ssh_host_key"
 DEFAULT_USERNAME = "admin"
 DEFAULT_PASSWORD = "admin"
 DEFAULT_SCAN_INTERVAL = 30
+PREFERRED_HOST_CHECK_INTERVAL_SECONDS = 60
+PREFERRED_HOST_TIMEOUT_SECONDS = 5
 
 # Services
 SERVICE_PUSH_BUTTON = "push_button"

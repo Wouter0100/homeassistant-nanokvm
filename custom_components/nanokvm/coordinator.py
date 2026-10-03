@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 import contextlib
 import datetime
 import logging
+from time import monotonic
 from typing import Any, TypeVar
 
 import aiohttp
@@ -55,17 +56,22 @@ from nanokvm.models import (
 )
 
 from .const import (
+    CONF_PREFERRED_HOST,
+    CONF_SSH_HOST_KEY,
     CONF_SSL_FINGERPRINT,
     CONF_USE_STATIC_HOST,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    PREFERRED_HOST_CHECK_INTERVAL_SECONDS,
+    PREFERRED_HOST_TIMEOUT_SECONDS,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_NETWORK_ENTITIES,
     SIGNAL_NEW_SSH_SENSORS,
     SIGNAL_NEW_SSH_SWITCHES,
 )
 from .ssh_metrics import SSHMetricsCollector
-from .utils import api_connection_options, extract_ssh_host
+from .ssh_host_keys import retarget_known_hosts_line
+from .utils import api_connection_options, extract_ssh_host, https_probe_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,6 +200,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
+        self._preferred_host_last_checked: float | None = None
 
         super().__init__(
             hass,
@@ -212,6 +219,10 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from NanoKVM."""
+        if await self._async_restore_preferred_host():
+            # The entry will reload with the verified preferred endpoint.
+            # Avoid polling its superseded client while that reload is pending.
+            return self._build_update_data()
         use_static_host = self.config_entry.data.get(CONF_USE_STATIC_HOST, False)
         current_host = self.config_entry.data[CONF_HOST]
 
@@ -245,6 +256,70 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 await asyncio.sleep(_UPDATE_RETRY_DELAY_SECONDS)
 
         raise UpdateFailed("NanoKVM update failed after retry attempts")
+
+    async def _async_restore_preferred_host(self) -> bool:
+        """Restore a verified preferred Pro endpoint without requiring another mDNS event."""
+        data = dict(self.config_entry.data)
+        preferred_host = data.get(CONF_PREFERRED_HOST)
+        if (
+            not self.is_pro_hardware
+            or data.get(CONF_USE_STATIC_HOST, False)
+            or not isinstance(preferred_host, str)
+            or preferred_host == data[CONF_HOST]
+        ):
+            return False
+
+        now = monotonic()
+        if (
+            self._preferred_host_last_checked is not None
+            and now - self._preferred_host_last_checked
+            < PREFERRED_HOST_CHECK_INTERVAL_SECONDS
+        ):
+            return False
+        self._preferred_host_last_checked = now
+
+        try:
+            async with asyncio.timeout(PREFERRED_HOST_TIMEOUT_SECONDS):
+                async with NanoKVMClient(
+                    https_probe_url(preferred_host),
+                    ssl_fingerprint=data.get(CONF_SSL_FINGERPRINT),
+                    request_timeout=PREFERRED_HOST_TIMEOUT_SECONDS,
+                ) as client:
+                    await client.authenticate(self.username, self.password)
+                    info = await client.get_info()
+        except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError):
+            _LOGGER.debug("Preferred NanoKVM host %s is not available", preferred_host)
+            return False
+
+        if (
+            str(info.device_key) != self.config_entry.unique_id
+            or self.config_entry.data != data
+        ):
+            return False
+
+        updated_data = data | {CONF_HOST: preferred_host}
+        if trusted_key := data.get(CONF_SSH_HOST_KEY):
+            try:
+                updated_data[CONF_SSH_HOST_KEY] = retarget_known_hosts_line(
+                    trusted_key, extract_ssh_host(preferred_host)
+                )
+            except ValueError:
+                _LOGGER.debug(
+                    "Cannot restore preferred NanoKVM host %s with an invalid SSH key",
+                    preferred_host,
+                )
+                return False
+
+        if self.hass.config_entries.async_update_entry(
+            self.config_entry, data=updated_data
+        ):
+            _LOGGER.debug(
+                "Restoring preferred NanoKVM host from %s to %s",
+                data[CONF_HOST], preferred_host,
+            )
+            self.hass.config_entries.async_schedule_reload(self.config_entry.entry_id)
+            return True
+        return False
 
     async def _async_fetch_once(self) -> dict[str, Any]:
         """Fetch data once, handling reauthentication when needed."""
