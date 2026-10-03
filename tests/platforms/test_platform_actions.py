@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -423,6 +424,46 @@ async def test_power_switch_missing_handlers_raise() -> None:
         await entity.async_turn_off()
 
 
+def _run_power_off_monitor_inline(
+    entity: switch_module.NanoKVMPowerSwitch, loop: MagicMock
+) -> None:
+    """Give the entity a Home Assistant boundary that schedules real tasks."""
+    entity.hass = SimpleNamespace(
+        loop=loop,
+        async_create_background_task=lambda coro, name: asyncio.ensure_future(coro),
+    )
+
+
+@pytest.mark.asyncio
+async def test_power_turn_off_returns_before_the_host_is_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The action ends after the button press; monitoring continues in the background."""
+    coordinator = _coordinator()
+    coordinator.client.push_button = AsyncMock()
+    release = asyncio.Event()
+    monkeypatch.setattr(switch_module.asyncio, "sleep", lambda _: release.wait())
+    entity = switch_module.NanoKVMPowerSwitch(
+        coordinator,
+        _description(switch_module.SWITCHES, "power"),
+    )
+    loop = MagicMock()
+    loop.time.return_value = 0
+    _run_power_off_monitor_inline(entity, loop)
+
+    await entity.async_turn_off()
+
+    coordinator.client.push_button.assert_awaited_once()
+    monitor = entity._shutdown_monitor
+    assert monitor is not None and not monitor.done()
+
+    await entity.async_will_remove_from_hass()
+    await asyncio.gather(monitor, return_exceptions=True)
+
+    assert monitor.cancelled()
+    assert entity._shutdown_monitor is None
+
+
 @pytest.mark.asyncio
 async def test_power_turn_off_presses_once_and_returns_when_gpio_turns_off() -> None:
     """Power-off monitoring must stop once a refreshed GPIO state is off."""
@@ -440,9 +481,10 @@ async def test_power_turn_off_presses_once_and_returns_when_gpio_turns_off() -> 
     )
     loop = MagicMock()
     loop.time.side_effect = [0, 0]
-    entity.hass = SimpleNamespace(loop=loop)
+    _run_power_off_monitor_inline(entity, loop)
 
     await entity.async_turn_off()
+    await entity._shutdown_monitor
 
     coordinator.client.push_button.assert_awaited_once()
     assert coordinator.async_refresh.await_count == 1
@@ -460,9 +502,10 @@ async def test_power_turn_off_refreshes_after_timeout() -> None:
     )
     loop = MagicMock()
     loop.time.side_effect = [0, 301]
-    entity.hass = SimpleNamespace(loop=loop)
+    _run_power_off_monitor_inline(entity, loop)
 
     await entity.async_turn_off()
+    await entity._shutdown_monitor
 
     coordinator.client.push_button.assert_awaited_once()
     assert coordinator.async_refresh.await_count == 1
@@ -484,9 +527,10 @@ async def test_power_turn_off_sleeps_between_unsuccessful_polls(
     )
     loop = MagicMock()
     loop.time.side_effect = [0, 0, 301]
-    entity.hass = SimpleNamespace(loop=loop)
+    _run_power_off_monitor_inline(entity, loop)
 
     await entity.async_turn_off()
+    await entity._shutdown_monitor
 
     sleep.assert_awaited_once_with(5)
     assert coordinator.async_refresh.await_count == 1

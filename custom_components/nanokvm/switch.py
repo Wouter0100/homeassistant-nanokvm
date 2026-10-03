@@ -413,6 +413,8 @@ class NanoKVMSwitch(NanoKVMEntity, SwitchEntity):
 class NanoKVMPowerSwitch(NanoKVMSwitch):
     """Defines a NanoKVM power switch with special shutdown behavior."""
 
+    _shutdown_monitor: asyncio.Task[None] | None = None
+
     async def _async_current_power_state(self) -> bool | None:
         """Refresh and return the current power state when available."""
         await self.coordinator.async_refresh()
@@ -442,6 +444,17 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
         async with self._async_device_action():
             await self.entity_description.turn_off_fn(self.coordinator)
 
+        # A host can take minutes to shut down, so follow it in the background
+        # instead of holding the action open.
+        if self._shutdown_monitor is not None:
+            self._shutdown_monitor.cancel()
+        self._shutdown_monitor = self.hass.async_create_background_task(
+            self._async_monitor_shutdown(),
+            name=f"nanokvm power-off monitor {self.unique_id}",
+        )
+
+    async def _async_monitor_shutdown(self) -> None:
+        """Refresh until the host reports power off or the wait times out."""
         SHUTDOWN_TIMEOUT = 300
         SHUTDOWN_POLL_INTERVAL = 5
 
@@ -455,6 +468,13 @@ class NanoKVMPowerSwitch(NanoKVMSwitch):
 
         _LOGGER.warning("Device did not turn off within %s seconds", SHUTDOWN_TIMEOUT)
         await self.coordinator.async_request_refresh()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop following a pending shutdown when the entity is removed."""
+        await super().async_will_remove_from_hass()
+        if self._shutdown_monitor is not None:
+            self._shutdown_monitor.cancel()
+            self._shutdown_monitor = None
 
 
 class NanoKVMVirtualDeviceSwitch(NanoKVMSwitch):
