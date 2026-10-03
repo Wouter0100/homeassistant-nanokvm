@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
@@ -29,24 +27,6 @@ from .entity import NanoKVMEntity
 _LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, kw_only=True)
-class NanoKVMUpdateEntityDescription(UpdateEntityDescription):
-    """Describes NanoKVM update entity."""
-
-    available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
-
-
-UPDATES: tuple[NanoKVMUpdateEntityDescription, ...] = (
-    NanoKVMUpdateEntityDescription(
-        key="application",
-        name="Application",
-        translation_key="application",
-        icon="mdi:update",
-        device_class=UpdateDeviceClass.FIRMWARE,
-    ),
-)
-
-
 def _normalize_version(version: str | None) -> str | None:
     """Normalize empty version strings to None."""
     if version is None:
@@ -64,32 +44,25 @@ async def async_setup_entry(
     """Set up NanoKVM update based on a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    async_add_entities(
-        NanoKVMUpdate(
-            coordinator=coordinator,
-            description=description,
-        )
-        for description in UPDATES
-        if description.available_fn(coordinator)
-    )
+    async_add_entities([NanoKVMUpdate(coordinator)])
 
 
 class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
     """Defines a NanoKVM update entity."""
 
-    entity_description: NanoKVMUpdateEntityDescription
+    entity_description = UpdateEntityDescription(
+        key="application",
+        name="Application",
+        translation_key="application",
+        icon="mdi:update",
+        device_class=UpdateDeviceClass.FIRMWARE,
+    )
     _attr_supported_features = UpdateEntityFeature.INSTALL
 
-    def __init__(
-        self,
-        coordinator: NanoKVMDataUpdateCoordinator,
-        description: NanoKVMUpdateEntityDescription,
-    ) -> None:
+    def __init__(self, coordinator: NanoKVMDataUpdateCoordinator) -> None:
         """Initialize NanoKVM update."""
-        self.entity_description = description
         super().__init__(
-            coordinator=coordinator,
-            unique_id_suffix=f"update_{description.key}",
+            coordinator=coordinator, unique_id_suffix="update_application"
         )
 
     @property
@@ -97,7 +70,6 @@ class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
         """Return if entity is available."""
         return (
             super().available
-            and self.entity_description.available_fn(self.coordinator)
             and self.coordinator.application_version_info is not None
         )
 

@@ -591,7 +591,7 @@ async def test_entity_actions_translate_device_failures(
 
 def _update_entity(coordinator: SimpleNamespace) -> update_module.NanoKVMUpdate:
     """Create the application update entity."""
-    return update_module.NanoKVMUpdate(coordinator, update_module.UPDATES[0])
+    return update_module.NanoKVMUpdate(coordinator)
 
 
 @pytest.mark.asyncio

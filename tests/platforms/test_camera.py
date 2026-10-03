@@ -66,37 +66,20 @@ def _camera(
         MagicMock(return_value=provider),
     )
 
-    entity = camera_module.NanoKVMCamera(
-        active_coordinator, camera_module.CAMERAS[0]
-    )
+    entity = camera_module.NanoKVMCamera(active_coordinator)
     return entity, manager, manager_factory
 
 
-def test_camera_description_inventory_and_default_availability() -> None:
-    """The platform exposes one always-created HDMI stream description."""
-    assert [description.key for description in camera_module.CAMERAS] == ["hdmi"]
-    assert camera_module.CAMERAS[0].available_fn(_coordinator()) is True
-
-
 @pytest.mark.asyncio
-async def test_async_setup_entry_filters_unavailable_descriptions(
+async def test_async_setup_entry_adds_the_hdmi_camera(
     hass_mock: MagicMock,
     config_entry_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Setup eagerly adds only descriptions whose capability predicate passes."""
+    """Setup adds the single HDMI stream camera for the entry's coordinator."""
     coordinator = _coordinator()
     hass_mock.data = {DOMAIN: {config_entry_mock.entry_id: coordinator}}
-    descriptions = (
-        camera_module.NanoKVMCameraEntityDescription(
-            key="available", available_fn=lambda _: True
-        ),
-        camera_module.NanoKVMCameraEntityDescription(
-            key="unavailable", available_fn=lambda _: False
-        ),
-    )
-    monkeypatch.setattr(camera_module, "CAMERAS", descriptions)
-    entity_factory = MagicMock(side_effect=lambda **kwargs: kwargs["description"].key)
+    entity_factory = MagicMock(return_value="camera")
     monkeypatch.setattr(camera_module, "NanoKVMCamera", entity_factory)
     batches: list[list[object]] = []
 
@@ -106,11 +89,8 @@ async def test_async_setup_entry_filters_unavailable_descriptions(
         lambda entities: batches.append(list(entities)),
     )
 
-    assert batches == [["available"]]
-    entity_factory.assert_called_once_with(
-        coordinator=coordinator,
-        description=descriptions[0],
-    )
+    assert batches == [["camera"]]
+    entity_factory.assert_called_once_with(coordinator)
 
 
 @pytest.mark.asyncio
