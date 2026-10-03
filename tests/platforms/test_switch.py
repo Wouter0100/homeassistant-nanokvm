@@ -57,7 +57,6 @@ def test_switch_descriptions_expose_stable_inventory() -> None:
     assert all(
         description.translation_key == description.key for description in SWITCHES
     )
-    assert all(description.icon for description in (*SWITCHES, *SSH_SWITCHES))
     assert (
         next(item for item in SWITCHES if item.key == "power").entity_category is None
     )

@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from webrtc_models import RTCIceCandidateInit
 
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .const import DOMAIN, ICON_HDMI
+from .const import DOMAIN
 from .entity import NanoKVMEntity
 from .media.client import NanoKVMStreamClientProvider
 from .media.signaling import NanoKVMWebRTCManager
@@ -47,9 +47,7 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
 
     entity_description = CameraEntityDescription(
         key="hdmi",
-        name="HDMI Stream",
         translation_key="hdmi",
-        icon=ICON_HDMI,
     )
 
     def __init__(self, coordinator: NanoKVMDataUpdateCoordinator) -> None:

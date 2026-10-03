@@ -18,7 +18,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
-    ICON_LED_STRIP,
     LED_BEAD_MIN,
     LED_BEAD_TOTAL_LIMIT,
     LED_BRIGHTNESS_MAX,
@@ -114,9 +113,7 @@ async def _set_led_vertical_count(
 NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     NanoKVMNumberEntityDescription(
         key="led_brightness",
-        name="LED Brightness",
         translation_key="led_brightness",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BRIGHTNESS_MIN,
         native_max_value=LED_BRIGHTNESS_MAX,
@@ -131,9 +128,7 @@ NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     ),
     NanoKVMNumberEntityDescription(
         key="led_horizontal_beads",
-        name="LED Horizontal Beads",
         translation_key="led_horizontal_beads",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BEAD_MIN,
         native_max_value=LED_BEAD_TOTAL_LIMIT - 2,
@@ -147,9 +142,7 @@ NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     ),
     NanoKVMNumberEntityDescription(
         key="led_vertical_beads",
-        name="LED Vertical Beads",
         translation_key="led_vertical_beads",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BEAD_MIN,
         native_max_value=(LED_BEAD_TOTAL_LIMIT - 1) // 2,

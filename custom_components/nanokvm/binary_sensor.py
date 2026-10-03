@@ -19,12 +19,8 @@ from nanokvm.models import HWVersion
 
 from .const import (
     DOMAIN,
-    ICON_DISK,
-    ICON_NETWORK,
-    ICON_POWER,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_NETWORK_ENTITIES,
-    ICON_WIFI,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
@@ -96,9 +92,7 @@ def _time_status_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     NanoKVMBinarySensorEntityDescription(
         key="cdrom_mode",
-        name="CD-ROM Mode",
         translation_key="cdrom_mode",
-        icon=ICON_DISK,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: bool(
             coordinator.cdrom_status and coordinator.cdrom_status.cdrom == 1
@@ -113,18 +107,14 @@ MEDIA_BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
 BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     NanoKVMBinarySensorEntityDescription(
         key="power_led",
-        name="Power LED",
         translation_key="power_led",
-        icon=ICON_POWER,
         value_fn=lambda coordinator: bool(
             coordinator.gpio_info and coordinator.gpio_info.pwr
         ),
     ),
     NanoKVMBinarySensorEntityDescription(
         key="hdd_led",
-        name="HDD LED",
         translation_key="hdd_led",
-        icon=ICON_DISK,
         value_fn=lambda coordinator: bool(
             coordinator.gpio_info and coordinator.gpio_info.hdd
         ),
@@ -134,9 +124,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     ),
     NanoKVMBinarySensorEntityDescription(
         key="wifi_connected",
-        name="WiFi Connected",
         translation_key="wifi_connected",
-        icon=ICON_WIFI,
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: bool(
@@ -147,9 +135,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     ),
     NanoKVMBinarySensorEntityDescription(
         key="wired_connected",
-        name="Wired Connected",
         translation_key="wired_connected",
-        icon=ICON_NETWORK,
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_wired_active,
@@ -157,9 +143,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     ),
     NanoKVMBinarySensorEntityDescription(
         key="static_ip_enabled",
-        name="Static IP Enabled",
         translation_key="static_ip_enabled",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: bool(
             coordinator.static_ip and coordinator.static_ip.enabled
@@ -169,9 +153,7 @@ BINARY_SENSORS: tuple[NanoKVMBinarySensorEntityDescription, ...] = (
     ),
     NanoKVMBinarySensorEntityDescription(
         key="time_synchronized",
-        name="Time Synchronized",
         translation_key="time_synchronized",
-        icon="mdi:clock-check-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: bool(
             coordinator.time_status and coordinator.time_status.is_synchronized

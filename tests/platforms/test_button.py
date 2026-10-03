@@ -14,13 +14,6 @@ from custom_components.nanokvm.button import (
     _is_pcie_hardware,
     _is_pro_hardware,
 )
-from custom_components.nanokvm.const import (
-    ICON_CLOCK,
-    ICON_HID,
-    ICON_KVM,
-    ICON_POWER,
-    ICON_RESET,
-)
 
 
 def test_button_descriptions_expose_stable_metadata() -> None:
@@ -28,37 +21,17 @@ def test_button_descriptions_expose_stable_metadata() -> None:
     assert [
         (
             description.key,
-            description.name,
             description.translation_key,
-            description.icon,
             description.entity_category,
         )
         for description in BUTTONS
     ] == [
-        ("power", "Power Button", "power", ICON_POWER, None),
-        ("reset", "Reset Button", "reset", ICON_RESET, None),
-        ("reboot", "Reboot System", "reboot", ICON_RESET, None),
-        (
-            "reset_hdmi",
-            "Reset HDMI",
-            "reset_hdmi",
-            ICON_KVM,
-            EntityCategory.CONFIG,
-        ),
-        (
-            "reset_hid",
-            "Reset HID",
-            "reset_hid",
-            ICON_HID,
-            EntityCategory.CONFIG,
-        ),
-        (
-            "sync_time",
-            "Sync Time",
-            "sync_time",
-            ICON_CLOCK,
-            EntityCategory.CONFIG,
-        ),
+        ("power", "power", None),
+        ("reset", "reset", None),
+        ("reboot", "reboot", None),
+        ("reset_hdmi", "reset_hdmi", EntityCategory.CONFIG),
+        ("reset_hid", "reset_hid", EntityCategory.CONFIG),
+        ("sync_time", "sync_time", EntityCategory.CONFIG),
     ]
     assert all(description.press_fn is not None for description in BUTTONS)
 

@@ -52,9 +52,7 @@ class NanoKVMUpdate(NanoKVMEntity, UpdateEntity):
 
     entity_description = UpdateEntityDescription(
         key="application",
-        name="Application",
         translation_key="application",
-        icon="mdi:update",
         device_class=UpdateDeviceClass.FIRMWARE,
     )
     _attr_supported_features = UpdateEntityFeature.INSTALL

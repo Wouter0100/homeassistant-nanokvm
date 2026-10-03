@@ -15,10 +15,6 @@ from nanokvm.models import DiskType, HidMode, LcdTimeFormat, MouseJigglerMode, V
 
 from .const import (
     DOMAIN,
-    ICON_DISK,
-    ICON_HID,
-    ICON_MOUSE_JIGGLER,
-    ICON_OLED,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
@@ -221,9 +217,7 @@ def _set_pro_disk(
 SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     NanoKVMSelectEntityDescription(
         key="hid_mode",
-        name="HID Mode (Reboot Required)",
         translation_key="hid_mode",
-        icon=ICON_HID,
         entity_category=EntityCategory.CONFIG,
         options=list(HID_MODE_OPTIONS.keys()),
         value_fn=_hid_mode_value,
@@ -232,9 +226,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     ),
     NanoKVMSelectEntityDescription(
         key="mouse_jiggler_mode",
-        name="Mouse Jiggler Mode",
         translation_key="mouse_jiggler_mode",
-        icon=ICON_MOUSE_JIGGLER,
         entity_category=EntityCategory.CONFIG,
         options=list(MOUSE_JIGGLER_OPTIONS.keys()),
         value_fn=_mouse_jiggler_mode_value,
@@ -243,9 +235,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     ),
     NanoKVMSelectEntityDescription(
         key="oled_sleep_timeout",
-        name="OLED Sleep Timeout",
         translation_key="oled_sleep_timeout",
-        icon=ICON_OLED,
         entity_category=EntityCategory.CONFIG,
         options=list(OLED_SLEEP_OPTIONS.keys()),
         value_fn=_oled_sleep_value,
@@ -254,9 +244,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     ),
     NanoKVMSelectEntityDescription(
         key="swap_size",
-        name="Swap Size",
         translation_key="swap_size",
-        icon=ICON_DISK,
         entity_category=EntityCategory.CONFIG,
         options=list(SWAP_OPTIONS.keys()),
         value_fn=_swap_size_value,
@@ -265,9 +253,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     ),
     NanoKVMSelectEntityDescription(
         key="lcd_time_format",
-        name="LCD Time Format",
         translation_key="lcd_time_format",
-        icon="mdi:clock-digital",
         entity_category=EntityCategory.CONFIG,
         options=list(LCD_TIME_FORMAT_OPTIONS.keys()),
         value_fn=_lcd_time_format_value,
@@ -276,9 +262,7 @@ SELECTS: tuple[NanoKVMSelectEntityDescription, ...] = (
     ),
     NanoKVMSelectEntityDescription(
         key="virtual_disk_type",
-        name="Virtual Disk Type",
         translation_key="virtual_disk_type",
-        icon=ICON_DISK,
         entity_category=EntityCategory.CONFIG,
         options=list(DISK_TYPE_OPTIONS.keys()),
         options_fn=_pro_disk_options,

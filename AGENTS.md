@@ -112,6 +112,8 @@ Each platform follows a similar pattern:
 1. **Entity descriptions**:
    A tuple of dataclass instances (for example,
    `NanoKVMSwitchEntityDescription`) declaratively defines entities.
+   Names come from `translations/*.json` and icons from `icons.json`, both
+   keyed by `translation_key`; descriptions set neither inline.
 2. **`value_fn`**:
    The description includes a lambda/function that reads entity state from
    coordinator data.
@@ -171,6 +173,7 @@ Run these checks locally before pushing:
 3. Validate JSON metadata, strings, and translations:
    - `python -m json.tool hacs.json`
    - `python -m json.tool custom_components/nanokvm/manifest.json`
+   - `python -m json.tool custom_components/nanokvm/icons.json`
    - `python -m json.tool custom_components/nanokvm/strings.json`
    - `python -m json.tool custom_components/nanokvm/translations/en.json`
    - `python -m json.tool custom_components/nanokvm/translations/fr.json`

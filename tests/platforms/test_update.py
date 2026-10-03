@@ -33,9 +33,7 @@ def test_update_description_exposes_stable_metadata() -> None:
     description = NanoKVMUpdate.entity_description
 
     assert description.key == "application"
-    assert description.name == "Application"
     assert description.translation_key == "application"
-    assert description.icon == "mdi:update"
     assert description.device_class == UpdateDeviceClass.FIRMWARE
 
 
