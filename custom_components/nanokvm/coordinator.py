@@ -137,37 +137,37 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
 
     config_entry: ConfigEntry
     device_info: GetInfoRsp
-    hostname_info: GetHostnameRsp | None
-    hardware_info: GetHardwareRsp | None
-    gpio_info: GetGpioRsp | None
-    virtual_device_info: GetVirtualDeviceRsp | None
-    ssh_state: GetSSHStateRsp | None
-    mdns_state: GetMdnsStateRsp | None
-    hid_mode: GetHidModeRsp | None
-    oled_info: GetOLEDRsp | None
-    wifi_status: GetWifiRsp | None
-    application_version_info: GetVersionRsp | None
-    mounted_image: GetMountedImageRsp | None
-    cdrom_status: GetCdRomRsp | None
-    mouse_jiggler_state: GetMouseJigglerRsp | None
-    hdmi_state: GetHdmiStateRsp | None
-    hdmi_capture: GetHdmiCaptureRsp | None
-    hdmi_passthrough: GetHdmiPassthroughRsp | None
-    low_power: GetLowPowerRsp | None
-    led_strip: GetLedStripRsp | None
-    lcd_time_format: GetLcdTimeFormatRsp | None
-    time_status: GetTimeStatusRsp | None
-    static_ip: GetStaticIPRsp | None
-    swap_size: int | None
-    tailscale_status: GetTailscaleStatusRsp | None
-    uptime: datetime.datetime | None
-    cpu_temperature: float | None
-    memory_total: float | None
-    memory_used_percent: float | None
-    storage_total: float | None
-    storage_used_percent: float | None
-    watchdog_enabled: bool | None
-    ssh_metrics_collector: SSHMetricsCollector | None
+    hostname_info: GetHostnameRsp | None = None
+    hardware_info: GetHardwareRsp | None = None
+    gpio_info: GetGpioRsp | None = None
+    virtual_device_info: GetVirtualDeviceRsp | None = None
+    ssh_state: GetSSHStateRsp | None = None
+    mdns_state: GetMdnsStateRsp | None = None
+    hid_mode: GetHidModeRsp | None = None
+    oled_info: GetOLEDRsp | None = None
+    wifi_status: GetWifiRsp | None = None
+    application_version_info: GetVersionRsp | None = None
+    mounted_image: GetMountedImageRsp | None = None
+    cdrom_status: GetCdRomRsp | None = None
+    mouse_jiggler_state: GetMouseJigglerRsp | None = None
+    hdmi_state: GetHdmiStateRsp | None = None
+    hdmi_capture: GetHdmiCaptureRsp | None = None
+    hdmi_passthrough: GetHdmiPassthroughRsp | None = None
+    low_power: GetLowPowerRsp | None = None
+    led_strip: GetLedStripRsp | None = None
+    lcd_time_format: GetLcdTimeFormatRsp | None = None
+    time_status: GetTimeStatusRsp | None = None
+    static_ip: GetStaticIPRsp | None = None
+    swap_size: int | None = None
+    tailscale_status: GetTailscaleStatusRsp | None = None
+    uptime: datetime.datetime | None = None
+    cpu_temperature: float | None = None
+    memory_total: float | None = None
+    memory_used_percent: float | None = None
+    storage_total: float | None = None
+    storage_used_percent: float | None = None
+    watchdog_enabled: bool | None = None
+    ssh_metrics_collector: SSHMetricsCollector | None = None
 
     def __init__(
         self,
@@ -185,44 +185,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self.password = password
         self.device_info = device_info
         self.ssh_known_hosts = ssh_known_hosts
-        self.hardware_info = None
-        self.gpio_info = None
-        self.virtual_device_info = None
-        self.ssh_state = None
-        self.mdns_state = None
-        self.hid_mode = None
-        self.oled_info = None
-        self.wifi_status = None
-        self.application_version_info = None
-        self.mounted_image = None
-        self.cdrom_status = None
-        self.mouse_jiggler_state = None
-        self.hdmi_state = None
-        self.hdmi_capture = None
-        self.hdmi_passthrough = None
-        self.low_power = None
-        self.led_strip = None
         self.led_brightness_request: LedBrightnessRequest | None = None
-        self.lcd_time_format = None
-        self.time_status = None
-        self.static_ip = None
-        self.swap_size = None
-        self.tailscale_status = None
-        self.uptime = None
-        self.cpu_temperature = None
-        self.memory_total = None
-        self.memory_used_percent = None
-        self.storage_total = None
-        self.storage_used_percent = None
         # Each creation signal is sent once; the platforms rely on that.
         self.media_entities_created = False
         self.network_entities_created: set[str] = set()
         self.ssh_sensors_created = False
         self.ssh_switches_created = False
-        self.ssh_metrics_collector = None
         self._ssh_connection_warning_logged = False
-        self.hostname_info = None
-        self.watchdog_enabled = None
         self._app_version_last_fetched: datetime.datetime | None = None
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
