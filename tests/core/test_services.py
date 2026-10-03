@@ -254,7 +254,9 @@ def test_register_services_registers_complete_surface_with_response_contracts(
     """Registration must expose every implementation service exactly once."""
     registered = _capture_registered_services(hass_mock)
 
-    assert tuple(registered) == services_module._SERVICE_NAMES
+    assert tuple(registered) == tuple(
+        service.name for service in services_module._SERVICES
+    )
     assert {
         name
         for name, service in registered.items()
@@ -846,7 +848,7 @@ def test_unregister_services_removes_only_registered_services(
 
     assert registry.async_remove.call_args_list == [
         call(DOMAIN, service_name)
-        for service_name in services_module._SERVICE_NAMES
+        for service_name in (service.name for service in services_module._SERVICES)
         if service_name in registered_names
     ]
 
