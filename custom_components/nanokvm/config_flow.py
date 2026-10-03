@@ -158,26 +158,6 @@ class NanoKVMConfigFlow(ConfigFlow, domain=DOMAIN):
         self._pending_ssh_host_key: SSHHostKey | None = None
         self._reconfigure_entry: ConfigEntry | None = None
 
-    def _get_reauth_entry(self) -> ConfigEntry:
-        """Return the config entry currently undergoing reauthentication."""
-        entry_id = self.context.get("entry_id")
-        if entry_id is None:
-            raise RuntimeError("Reauth flow started without a NanoKVM entry ID")
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        if entry is None:
-            raise RuntimeError("Reauth flow started for a missing NanoKVM entry")
-        return entry
-
-    def _get_reconfigure_entry(self) -> ConfigEntry:
-        """Return the config entry currently undergoing reconfiguration."""
-        entry_id = self.context.get("entry_id")
-        if entry_id is None:
-            raise RuntimeError("Reconfigure flow started without a NanoKVM entry ID")
-        entry = self.hass.config_entries.async_get_entry(entry_id)
-        if entry is None:
-            raise RuntimeError("Reconfigure flow started for a missing NanoKVM entry")
-        return entry
-
     async def _async_add_device_with_ssh_key(
         self,
         device_key: str,
