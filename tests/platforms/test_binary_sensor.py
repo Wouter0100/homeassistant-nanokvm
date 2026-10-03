@@ -111,7 +111,7 @@ def test_cdrom_supported_uses_coordinator_capability(
     supported: bool,
 ) -> None:
     """CD-ROM entity creation follows the coordinator capability."""
-    coordinator = coordinator_state_factory(supports_cdrom_endpoint=supported)
+    coordinator = coordinator_state_factory(is_non_pro_hardware=supported)
 
     assert _cdrom_supported(coordinator) is supported
 
@@ -276,7 +276,7 @@ def test_cdrom_description_contract(
 ) -> None:
     """CD-ROM state is created by capability and available only while mounted."""
     coordinator = coordinator_state_factory(
-        supports_cdrom_endpoint=True,
+        is_non_pro_hardware=True,
         mounted_image=SimpleNamespace(file=mounted_file),
         cdrom_status=SimpleNamespace(cdrom=cdrom),
     )

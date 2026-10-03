@@ -693,7 +693,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
             )
         if self.supports_hdmi_endpoint:
             calls["hdmi_state"] = optional("/vm/hdmi", client.get_hdmi_state)
-        if self.supports_swap_size:
+        if self.is_non_pro_hardware:
             calls["swap_size"] = optional("/vm/swap", client.get_swap_size)
         if self.is_pro_hardware:
             calls |= {
@@ -774,7 +774,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_fetch_storage_data(self) -> None:
         """Fetch storage-specific state (mounted image and CD-ROM mode)."""
         mounted_image = GetMountedImageRsp(file="", cdrom=False, readOnly=False)
-        cdrom_status = GetCdRomRsp(cdrom=0) if self.supports_cdrom_endpoint else None
+        cdrom_status = GetCdRomRsp(cdrom=0) if self.is_non_pro_hardware else None
         if self.hid_mode and self.hid_mode.mode == HidMode.NORMAL:
             try:
                 mounted_image = await self.client.get_mounted_image()
@@ -783,7 +783,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                     "Failed to get mounted image, retrieving default value: %s", err
                 )
 
-            if self.supports_cdrom_endpoint:
+            if self.is_non_pro_hardware:
                 cdrom_status = await self._fetch_optional(
                     "/storage/cdrom", self.client.get_cdrom_status
                 )
@@ -873,8 +873,8 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     @property
-    def supports_non_pro_virtual_device_controls(self) -> bool:
-        """Return whether non-Pro virtual network/disk controls apply."""
+    def is_non_pro_hardware(self) -> bool:
+        """Return whether non-Pro endpoints and controls apply to this device."""
         return self.hardware_info is not None and not self.is_pro_hardware
 
     @property
@@ -883,16 +883,6 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         return bool(
             self.hardware_info and self.hardware_info.version == HWVersion.PCIE
         )
-
-    @property
-    def supports_swap_size(self) -> bool:
-        """Return whether the non-Pro swap-size endpoint should be queried."""
-        return self.hardware_info is not None and not self.is_pro_hardware
-
-    @property
-    def supports_cdrom_endpoint(self) -> bool:
-        """Return whether the non-Pro CD-ROM endpoint should be queried."""
-        return self.hardware_info is not None and not self.is_pro_hardware
 
     def _active_network_connection_types(self) -> set[str]:
         """Return active network connection types reported by the NanoKVM."""

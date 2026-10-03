@@ -72,7 +72,7 @@ def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 
 def _non_pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether the non-Pro virtual-device switches apply to this device."""
-    return coordinator.supports_non_pro_virtual_device_controls
+    return coordinator.is_non_pro_hardware
 
 
 def _pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:

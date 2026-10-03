@@ -1372,10 +1372,10 @@ def test_hardware_capability_properties(
     )
 
     assert coordinator.is_pro_hardware is is_pro
-    assert coordinator.supports_non_pro_virtual_device_controls is non_pro_virtual
+    assert coordinator.is_non_pro_hardware is non_pro_virtual
     assert coordinator.supports_hdmi_endpoint is hdmi
-    assert coordinator.supports_swap_size is swap
-    assert coordinator.supports_cdrom_endpoint is cdrom
+    assert coordinator.is_non_pro_hardware is swap
+    assert coordinator.is_non_pro_hardware is cdrom
 
 
 def test_active_network_connection_types_are_normalized_and_deduplicated(
