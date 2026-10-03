@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from yarl import URL
 
 from custom_components.nanokvm.utils import (
     NanoKVMAPIConnectionOption,
-    NanoKVMConnectionTarget,
     api_base_url_to_web_url,
     api_connection_options,
     extract_ssh_host,
@@ -122,25 +120,13 @@ def test_unknown_preferred_connection_url_preserves_default_order() -> None:
     assert [option.scheme for option in options] == ["http", "https"]
 
 
-def test_connection_target_exposes_normalized_properties() -> None:
-    """A parsed target must share one origin across API, SSH, and matching helpers."""
-    target = NanoKVMConnectionTarget.from_host(
-        "https://192.0.2.20:8443/custom?query=yes#fragment"
-    )
+def test_helpers_share_one_normalized_origin() -> None:
+    """API, SSH, and matching helpers must agree on the parsed host."""
+    host = "https://192.0.2.20:8443/custom?query=yes#fragment"
 
-    assert target.origin == URL("https://192.0.2.20:8443/custom")
-    assert target.has_explicit_scheme is True
-    assert target.ssh_host == "192.0.2.20"
-    assert target.match_key == ("192.0.2.20", 8443, "/custom/api/")
-    assert target.https_probe_url == "https://192.0.2.20:8443/custom/api/"
-
-
-def test_invalid_connection_target_has_no_ssh_host() -> None:
-    """Malformed targets without a hostname must be rejected for SSH use."""
-    target = NanoKVMConnectionTarget(origin=URL(""), has_explicit_scheme=False)
-
-    with pytest.raises(ValueError, match="Invalid NanoKVM host value"):
-        _ = target.ssh_host
+    assert extract_ssh_host(host) == "192.0.2.20"
+    assert host_match_key(host) == ("192.0.2.20", 8443, "/custom/api/")
+    assert https_probe_url(host) == "https://192.0.2.20:8443/custom/api/"
 
 
 def test_public_ssh_helper_rejects_empty_host() -> None:
@@ -166,8 +152,8 @@ def test_api_base_url_converts_to_web_ui_url(api_url: str, web_url: str) -> None
     assert api_base_url_to_web_url(api_url) == web_url
 
 
-def test_public_url_and_ssh_helpers_delegate_to_connection_target() -> None:
-    """Convenience helpers must use the same normalized connection target."""
+def test_public_url_and_ssh_helpers_normalize_hosts() -> None:
+    """Convenience helpers must normalize paths and bracketed IPv6 hosts."""
     assert https_probe_url("nanokvm.local/custom") == (
         "https://nanokvm.local/custom/api/"
     )
