@@ -39,8 +39,10 @@ The integration follows the standard structure for a Home Assistant
     state, dynamic media/network/SSH entities, and SSH metric refresh.
   - Gates non-Pro-only endpoints such as swap size, CD-ROM state, HDMI output,
     and non-Pro virtual disk controls.
-  - Checks a fallback Pro entry's saved preferred host at most once per minute
-    and restores it only after authenticating and verifying its device key.
+  - Checks a fallback Pro entry's saved preferred host at most once per minute,
+    backing off to hourly while it is unreachable, and restores it only after
+    authenticating and verifying its device key. Forgets a preferred host that
+    answers with another device key.
 
 - **`entity.py`**: Defines `NanoKVMEntity` base class.
   - Shared entity behavior (`unique_id`, `device_info`) for all platforms.
@@ -58,13 +60,15 @@ The integration follows the standard structure for a Home Assistant
   - Matches Pro discovery across advertised addresses and API-reported device
     hostnames and reuses saved TLS trust. Saves the chosen host as preferred,
     keeps working fallbacks, and returns to the preferred host when verified.
+  - Asks for TLS trust on SSH discovery only after the host answers like a
+    NanoKVM, and treats a different device at a saved address as its own device.
 
 - **`const.py`**: Central repository for shared constants (domain, service
   names, attributes, defaults, icons, and signal names).
 
 - **`utils.py`**: Shared helpers for host normalization and SSH host extraction.
-  - Resolves HTTP/HTTPS API candidates, HTTPS probe URLs, and normalized host
-    matching keys.
+  - Resolves HTTP/HTTPS API candidates, HTTPS probe URLs, scheme-preserving
+    verification URLs, and normalized host matching keys.
 
 - **`ssh_metrics.py`**: SSH metrics collection implementation used by the
   coordinator.

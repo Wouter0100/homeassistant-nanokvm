@@ -63,6 +63,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     PREFERRED_HOST_CHECK_INTERVAL_SECONDS,
+    PREFERRED_HOST_MAX_CHECK_INTERVAL_SECONDS,
     PREFERRED_HOST_TIMEOUT_SECONDS,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_NETWORK_ENTITIES,
@@ -71,7 +72,7 @@ from .const import (
 )
 from .ssh_metrics import SSHMetricsCollector
 from .ssh_host_keys import retarget_known_hosts_line
-from .utils import api_connection_options, extract_ssh_host, https_probe_url
+from .utils import api_connection_options, extract_ssh_host, verification_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -201,6 +202,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
         self._preferred_host_last_checked: float | None = None
+        self._preferred_host_check_interval = PREFERRED_HOST_CHECK_INTERVAL_SECONDS
 
         super().__init__(
             hass,
@@ -273,28 +275,59 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         if (
             self._preferred_host_last_checked is not None
             and now - self._preferred_host_last_checked
-            < PREFERRED_HOST_CHECK_INTERVAL_SECONDS
+            < self._preferred_host_check_interval
         ):
             return False
         self._preferred_host_last_checked = now
 
+        # A scheme-less preferred host is reached like the working connection,
+        # unless a saved pin lets the probe verify the host before logging in.
+        probe_url = verification_url(
+            preferred_host,
+            "https" if data.get(CONF_SSL_FINGERPRINT) else self.client.url.scheme,
+        )
         try:
             async with asyncio.timeout(PREFERRED_HOST_TIMEOUT_SECONDS):
                 async with NanoKVMClient(
-                    https_probe_url(preferred_host),
-                    ssl_fingerprint=data.get(CONF_SSL_FINGERPRINT),
+                    probe_url,
+                    ssl_fingerprint=(
+                        data.get(CONF_SSL_FINGERPRINT)
+                        if probe_url.startswith("https://")
+                        else None
+                    ),
                     request_timeout=PREFERRED_HOST_TIMEOUT_SECONDS,
                 ) as client:
                     await client.authenticate(self.username, self.password)
                     info = await client.get_info()
         except (aiohttp.ClientError, NanoKVMError, asyncio.TimeoutError):
-            _LOGGER.debug("Preferred NanoKVM host %s is not available", preferred_host)
+            # Back off so a long-gone address is not probed every minute.
+            self._preferred_host_check_interval = min(
+                self._preferred_host_check_interval * 2,
+                PREFERRED_HOST_MAX_CHECK_INTERVAL_SECONDS,
+            )
+            _LOGGER.debug(
+                "Preferred NanoKVM host %s is not available, next check in %ss",
+                preferred_host,
+                self._preferred_host_check_interval,
+            )
+            return False
+        self._preferred_host_check_interval = PREFERRED_HOST_CHECK_INTERVAL_SECONDS
+
+        if self.config_entry.data != data:
             return False
 
-        if (
-            str(info.device_key) != self.config_entry.unique_id
-            or self.config_entry.data != data
-        ):
+        if str(info.device_key) != self.config_entry.unique_id:
+            # The address now belongs to another NanoKVM. Forget it so stored
+            # credentials are not sent there again.
+            _LOGGER.debug(
+                "Preferred NanoKVM host %s now serves another device, keeping %s",
+                preferred_host,
+                data[CONF_HOST],
+            )
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=data | {CONF_PREFERRED_HOST: data[CONF_HOST]},
+            )
             return False
 
         updated_data = data | {CONF_HOST: preferred_host}

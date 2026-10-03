@@ -320,7 +320,7 @@ async def test_periodic_preferred_host_rejects_different_device_identity(
     coordinator: NanoKVMDataUpdateCoordinator,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A reused preferred IP cannot redirect the entry to another NanoKVM."""
+    """A reused preferred IP is forgotten instead of redirecting or being re-probed."""
     _use_wifi_with_preferred_ethernet(coordinator)
     preferred = _candidate_client("https://192.0.2.20/api/")
     preferred.get_info.return_value = _device_info(device_key="different-device")
@@ -329,7 +329,10 @@ async def test_periodic_preferred_host_rejects_different_device_identity(
 
     assert await coordinator._async_update_data() == {"active_host": "wifi"}
     assert factory.call_count == 1
-    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == "192.0.2.21"
+    assert updated["preferred_host"] == "192.0.2.21"
+    coordinator.hass.config_entries.async_schedule_reload.assert_not_called()
 
 
 async def test_periodic_preferred_host_respects_configuration_changes_during_probe(
@@ -374,12 +377,78 @@ async def test_periodic_preferred_host_probe_is_throttled_then_recovers(
     now = 30.0
     assert await coordinator._async_update_data() == {"active_host": "wifi"}
     assert factory.call_count == 1
+    # The failed check doubled the wait before the next one.
     now = 61.0
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    now = 121.0
     await coordinator._async_update_data()
 
     assert factory.call_count == 2
     updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
     assert updated[CONF_HOST] == "https://192.0.2.20"
+
+
+async def test_periodic_preferred_host_probe_backs_off_up_to_an_hour(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preferred address that stays unreachable is checked less and less often."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    now = 0.0
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: now, raising=False)
+    unavailable = _candidate_client(
+        "https://192.0.2.20/api/", authenticate_error=asyncio.TimeoutError()
+    )
+    monkeypatch.setattr(
+        coordinator_module, "NanoKVMClient", MagicMock(return_value=unavailable)
+    )
+
+    intervals = []
+    for _ in range(8):
+        await coordinator._async_update_data()
+        intervals.append(coordinator._preferred_host_check_interval)
+        now += coordinator._preferred_host_check_interval
+
+    assert intervals == [120, 240, 480, 960, 1920, 3600, 3600, 3600]
+
+
+@pytest.mark.parametrize(
+    ("preferred_host", "client_url", "pinned", "probe_url"),
+    [
+        ("http://192.0.2.20", "https://192.0.2.21/api/", True, "http://192.0.2.20/api/"),
+        ("192.0.2.20", "http://192.0.2.21/api/", False, "http://192.0.2.20/api/"),
+        ("192.0.2.20", "http://192.0.2.21/api/", True, "https://192.0.2.20/api/"),
+        ("192.0.2.20", "https://192.0.2.21/api/", False, "https://192.0.2.20/api/"),
+    ],
+)
+async def test_periodic_preferred_host_probe_uses_the_entry_transport(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+    preferred_host: str,
+    client_url: str,
+    pinned: bool,
+    probe_url: str,
+) -> None:
+    """An HTTP entry returns to its preferred host without a forced HTTPS probe."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    coordinator.config_entry.data["preferred_host"] = preferred_host
+    if not pinned:
+        del coordinator.config_entry.data[CONF_SSL_FINGERPRINT]
+    coordinator.client.url = URL(client_url)
+    preferred = _candidate_client(probe_url)
+    preferred.get_info.return_value = _device_info()
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    await coordinator._async_update_data()
+
+    assert factory.call_args.args == (probe_url,)
+    assert factory.call_args.kwargs["ssl_fingerprint"] == (
+        "AA" * 32 if pinned and probe_url.startswith("https://") else None
+    )
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == preferred_host
 
 
 async def test_periodic_preferred_host_probe_bounds_the_whole_request(
