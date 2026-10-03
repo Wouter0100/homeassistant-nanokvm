@@ -156,6 +156,11 @@ def normalize_host(host: str, ssl_fingerprint: str | None = None) -> str:
     )[0].base_url
 
 
+def device_sw_version(application: str, image: str | None) -> str:
+    """Return the software version shown for a NanoKVM device."""
+    return f"{application} (Image: {image})" if image else application
+
+
 def normalize_mdns(mdns: str) -> str:
     """Normalize mDNS hostnames to include a trailing dot."""
     return mdns if mdns.endswith(".") else f"{mdns}."

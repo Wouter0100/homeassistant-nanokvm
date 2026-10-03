@@ -17,7 +17,7 @@ from nanokvm.client import NanoKVMClient, NanoKVMError
 
 from .const import DOMAIN, INTEGRATION_TITLE
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .utils import api_base_url_to_web_url
+from .utils import api_base_url_to_web_url, device_sw_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,10 +68,9 @@ class NanoKVMEntity(CoordinatorEntity[NanoKVMDataUpdateCoordinator]):
             else "Unknown"
         )
 
-        sw_version = device_data.application
-        image = getattr(device_data, "image", None)
-        if image:
-            sw_version += f" (Image: {image})"
+        sw_version = device_sw_version(
+            device_data.application, getattr(device_data, "image", None)
+        )
 
         return DeviceInfo(
             identifiers={(DOMAIN, device_data.device_key)},

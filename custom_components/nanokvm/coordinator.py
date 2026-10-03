@@ -15,6 +15,7 @@ from awesomeversion import AwesomeVersion, AwesomeVersionException
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -62,6 +63,7 @@ from .const import (
     CONF_USE_STATIC_HOST,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    INTEGRATION_TITLE,
     PREFERRED_HOST_CHECK_INTERVAL_SECONDS,
     PREFERRED_HOST_MAX_CHECK_INTERVAL_SECONDS,
     PREFERRED_HOST_TIMEOUT_SECONDS,
@@ -72,7 +74,12 @@ from .const import (
 )
 from .ssh_metrics import SSHMetricsCollector
 from .ssh_host_keys import retarget_known_hosts_line
-from .utils import api_connection_options, extract_ssh_host, verification_url
+from .utils import (
+    api_connection_options,
+    device_sw_version,
+    extract_ssh_host,
+    verification_url,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -202,6 +209,7 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
         self._app_version_fetch_task: asyncio.Task[None] | None = None
         self._client_lock = asyncio.Lock()
         self._preferred_host_last_checked: float | None = None
+        self._registered_device_details: tuple[str, str] | None = None
         self._preferred_host_check_interval = PREFERRED_HOST_CHECK_INTERVAL_SECONDS
 
         super().__init__(
@@ -425,9 +433,35 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._async_fetch_storage_data()
                 self._async_maybe_create_media_entities()
 
+        self._async_sync_device_registry()
         await self._async_refresh_ssh_data()
         self._async_schedule_app_version_refresh()
         return self._build_update_data()
+
+    def _async_sync_device_registry(self) -> None:
+        """Keep the registered device name and firmware current between reloads."""
+        details = (
+            self.hostname_info.hostname if self.hostname_info else INTEGRATION_TITLE,
+            device_sw_version(
+                self.device_info.application,
+                getattr(self.device_info, "image", None),
+            ),
+        )
+        if self._registered_device_details in (None, details):
+            # Entities register the device with these values themselves.
+            self._registered_device_details = details
+            return
+
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(
+            identifiers={(DOMAIN, self.device_info.device_key)}
+        )
+        if device is None:
+            return
+        registry.async_update_device(
+            device.id, name=details[0], sw_version=details[1]
+        )
+        self._registered_device_details = details
 
     async def _async_reauthenticate_client(self, original_error: Exception) -> None:
         """Reauthenticate and replace the client when token/auth fails."""

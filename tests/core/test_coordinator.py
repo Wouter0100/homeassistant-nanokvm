@@ -217,6 +217,40 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
 
 
+def test_device_registry_follows_firmware_and_hostname_changes(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An updated application or hostname reaches the device registry without a reload."""
+    registry = MagicMock()
+    registry.async_get_device.return_value = SimpleNamespace(id="device-id")
+    monkeypatch.setattr(coordinator_module.dr, "async_get", lambda hass: registry)
+    coordinator.device_info = SimpleNamespace(
+        device_key="test-device", application="2.3.4", image="2026-07-01"
+    )
+    coordinator.hostname_info = SimpleNamespace(hostname="nano-pro")
+
+    coordinator._async_sync_device_registry()
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_not_called()
+
+    coordinator.device_info.application = "2.4.0"
+    registry.async_get_device.return_value = None
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_not_called()
+
+    registry.async_get_device.return_value = SimpleNamespace(id="device-id")
+    coordinator._async_sync_device_registry()
+    coordinator._async_sync_device_registry()
+    registry.async_update_device.assert_called_once_with(
+        "device-id", name="nano-pro", sw_version="2.4.0 (Image: 2026-07-01)"
+    )
+
+    coordinator.hostname_info = None
+    coordinator._async_sync_device_registry()
+    assert registry.async_update_device.call_args.kwargs["name"] == "NanoKVM"
+
+
 def _use_wifi_with_preferred_ethernet(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:
