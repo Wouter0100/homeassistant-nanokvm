@@ -1404,7 +1404,9 @@ async def test_ensure_ssh_collector_creates_once_and_reuses(
 
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
-    factory.assert_called_once_with(host="nanokvm.local", password="password")
+    factory.assert_called_once_with(
+        host="nanokvm.local", password="password", known_hosts=None
+    )
 
 
 async def test_ensure_ssh_collector_forwards_known_hosts_path(

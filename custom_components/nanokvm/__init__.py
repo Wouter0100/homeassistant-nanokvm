@@ -97,25 +97,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Failed to fetch initial device info: {last_error}"
         ) from last_error
 
-    coordinator_kwargs = {
-        "client": client,
-        "username": username,
-        "password": password,
-        "device_info": device_info,
-    }
-    approved_ssh_host_key = entry.data.get(CONF_SSH_HOST_KEY)
-    if approved_ssh_host_key:
-        known_hosts_path = await async_write_known_hosts(
-            hass,
-            entry.entry_id,
-            approved_ssh_host_key,
+    ssh_known_hosts: str | None = None
+    if approved_ssh_host_key := entry.data.get(CONF_SSH_HOST_KEY):
+        ssh_known_hosts = str(
+            await async_write_known_hosts(hass, entry.entry_id, approved_ssh_host_key)
         )
-        coordinator_kwargs["ssh_known_hosts"] = str(known_hosts_path)
 
     coordinator = NanoKVMDataUpdateCoordinator(
         hass,
         entry,
-        **coordinator_kwargs,
+        client=client,
+        username=username,
+        password=password,
+        device_info=device_info,
+        ssh_known_hosts=ssh_known_hosts,
     )
 
     await coordinator.async_config_entry_first_refresh()

@@ -895,11 +895,11 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_ensure_ssh_metrics_collector(self) -> SSHMetricsCollector:
         """Return the active SSH collector, creating it when needed."""
         if not self.ssh_metrics_collector:
-            host = extract_ssh_host(self.config_entry.data[CONF_HOST])
-            collector_kwargs = {"host": host, "password": self.password}
-            if self.ssh_known_hosts is not None:
-                collector_kwargs["known_hosts"] = self.ssh_known_hosts
-            self.ssh_metrics_collector = SSHMetricsCollector(**collector_kwargs)
+            self.ssh_metrics_collector = SSHMetricsCollector(
+                host=extract_ssh_host(self.config_entry.data[CONF_HOST]),
+                password=self.password,
+                known_hosts=self.ssh_known_hosts,
+            )
         return self.ssh_metrics_collector
 
     def _async_maybe_create_media_entities(self) -> None:

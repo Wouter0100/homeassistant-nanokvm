@@ -145,6 +145,7 @@ async def test_setup_entry_success_initializes_coordinator_platforms_and_service
         "password": "password",
         "device_info": client.scenario.device_info
         or SimpleNamespace(device_key="device-key", application="1.0.0"),
+        "ssh_known_hosts": None,
     }
     coordinator.async_config_entry_first_refresh.assert_awaited_once_with()
     assert hass_mock.data[DOMAIN][config_entry_mock.entry_id] is coordinator
