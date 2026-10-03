@@ -98,6 +98,7 @@ def _device_info(
     *,
     application: str = "2.2.2",
     ips: list[IPInfo] | None = None,
+    device_key: str = "test-device",
 ) -> GetInfoRsp:
     """Build a complete NanoKVM device-info response."""
     return GetInfoRsp(
@@ -105,7 +106,7 @@ def _device_info(
         mdns="nanokvm.local",
         image="2026-07-12",
         application=application,
-        deviceKey="test-device",
+        deviceKey=device_key,
     )
 
 
@@ -214,6 +215,236 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _is_invalid_file_content_error(wrong_code) is False
     assert _is_invalid_file_content_error(wrong_message) is False
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
+
+
+def _use_wifi_with_preferred_ethernet(
+    coordinator: NanoKVMDataUpdateCoordinator,
+) -> None:
+    """Configure a Pro temporarily using Wi-Fi while retaining its chosen Ethernet URL."""
+    coordinator.hardware_info = GetHardwareRsp(version=HWVersion.PRO)
+    coordinator.config_entry.data.update({
+        CONF_HOST: "192.0.2.21",
+        "preferred_host": "https://192.0.2.20",
+        CONF_SSL_FINGERPRINT: "AA" * 32,
+        "ssh_host_key": "192.0.2.21 ssh-ed25519 ZHVtbXk=",
+    })
+    coordinator.client.url = URL("https://192.0.2.21/api/")
+    coordinator._async_fetch_once = AsyncMock(return_value={"active_host": "wifi"})
+
+
+async def test_periodic_update_returns_to_preferred_host_without_mdns(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recovered preferred endpoint restores the saved URL and SSH key host together."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    preferred = _candidate_client("https://192.0.2.20/api/")
+    preferred.get_info.return_value = _device_info()
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    await coordinator._async_update_data()
+
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == "https://192.0.2.20"
+    assert updated["preferred_host"] == "https://192.0.2.20"
+    assert updated["ssh_host_key"] == "192.0.2.20 ssh-ed25519 ZHVtbXk="
+    assert updated[CONF_SSL_FINGERPRINT] == "AA" * 32
+    coordinator.hass.config_entries.async_schedule_reload.assert_called_once_with(
+        coordinator.config_entry.entry_id
+    )
+    coordinator._async_fetch_once.assert_not_awaited()
+    preferred.authenticate.assert_awaited_once_with("admin", "password")
+    preferred.__aexit__.assert_awaited_once()
+    assert factory.call_args.args == ("https://192.0.2.20/api/",)
+    assert factory.call_args.kwargs["ssl_fingerprint"] == "AA" * 32
+
+
+@pytest.mark.parametrize("without_ssh_key", [True, False])
+async def test_periodic_preferred_host_recovery_preserves_optional_ssh(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+    without_ssh_key: bool,
+) -> None:
+    """Recovery does not add SSH trust or discard an approved but malformed key."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    if without_ssh_key:
+        coordinator.config_entry.data.pop("ssh_host_key")
+    else:
+        coordinator.config_entry.data["ssh_host_key"] = "invalid-known-hosts-line"
+    preferred = _candidate_client("https://192.0.2.20/api/")
+    preferred.get_info.return_value = _device_info()
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", MagicMock(return_value=preferred))
+
+    result = await coordinator._async_update_data()
+
+    if without_ssh_key:
+        updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        assert updated[CONF_HOST] == "https://192.0.2.20"
+        assert "ssh_host_key" not in updated
+    else:
+        assert result == {"active_host": "wifi"}
+        coordinator.hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        asyncio.TimeoutError(),
+        aiohttp.ClientConnectionError("cable unplugged"),
+        NanoKVMAuthenticationFailure("credentials rejected"),
+        NanoKVMError("API unavailable"),
+        aiohttp.ServerFingerprintMismatch(b"expected", b"other", "nano", 443),
+    ],
+)
+async def test_periodic_preferred_host_failure_keeps_wifi_available(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: Exception,
+) -> None:
+    """A preferred-host probe failure cannot turn healthy Wi-Fi into an integration error."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    preferred = _candidate_client(
+        "https://192.0.2.20/api/", authenticate_error=probe_error
+    )
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+    preferred.__aexit__.assert_awaited_once()
+
+
+async def test_periodic_preferred_host_rejects_different_device_identity(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reused preferred IP cannot redirect the entry to another NanoKVM."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    preferred = _candidate_client("https://192.0.2.20/api/")
+    preferred.get_info.return_value = _device_info(device_key="different-device")
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+
+
+async def test_periodic_preferred_host_respects_configuration_changes_during_probe(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending probe cannot overwrite a later user or discovery host change."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    preferred = _candidate_client("https://192.0.2.20/api/")
+
+    async def change_host_during_probe() -> GetInfoRsp:
+        coordinator.config_entry.data[CONF_HOST] = "192.0.2.99"
+        return _device_info()
+
+    preferred.get_info.side_effect = change_host_during_probe
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    assert coordinator.config_entry.data[CONF_HOST] == "192.0.2.99"
+    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+
+
+async def test_periodic_preferred_host_probe_is_throttled_then_recovers(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Normal polling stays on Wi-Fi between bounded preferred-host checks."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    now = 0.0
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: now, raising=False)
+    unavailable = _candidate_client(
+        "https://192.0.2.20/api/", authenticate_error=asyncio.TimeoutError()
+    )
+    recovered = _candidate_client("https://192.0.2.20/api/")
+    recovered.get_info.return_value = _device_info()
+    factory = MagicMock(side_effect=[unavailable, recovered])
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    now = 30.0
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    assert factory.call_count == 1
+    now = 61.0
+    await coordinator._async_update_data()
+
+    assert factory.call_count == 2
+    updated = coordinator.hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert updated[CONF_HOST] == "https://192.0.2.20"
+
+
+async def test_periodic_preferred_host_probe_bounds_the_whole_request(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stuck preferred-host login times out while Wi-Fi polling remains available."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    monkeypatch.setattr(
+        coordinator_module, "PREFERRED_HOST_TIMEOUT_SECONDS", 0.01, raising=False
+    )
+    preferred = _candidate_client("https://192.0.2.20/api/")
+
+    async def hang(*_args: object) -> None:
+        await asyncio.Event().wait()
+
+    preferred.authenticate.side_effect = hang
+    factory = MagicMock(return_value=preferred)
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await asyncio.wait_for(coordinator._async_update_data(), 0.5) == {
+        "active_host": "wifi"
+    }
+    assert factory.call_count == 1
+    preferred.__aexit__.assert_awaited_once()
+    coordinator.hass.config_entries.async_update_entry.assert_not_called()
+
+
+async def test_periodic_preferred_host_restore_does_not_reload_an_unchanged_entry(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Home Assistant reports no saved change, continue polling the current client."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    coordinator.hass.config_entries.async_update_entry.return_value = False
+    preferred = _candidate_client("https://192.0.2.20/api/")
+    preferred.get_info.return_value = _device_info()
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", MagicMock(return_value=preferred))
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    coordinator.hass.config_entries.async_schedule_reload.assert_not_called()
+
+
+@pytest.mark.parametrize("reason", ["static", "non_pro", "no_preference", "already_preferred"])
+async def test_periodic_preferred_host_probe_only_runs_for_pro_fallbacks(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    monkeypatch: pytest.MonkeyPatch,
+    reason: str,
+) -> None:
+    """Static entries, other hardware, and the preferred connection incur no extra probe."""
+    _use_wifi_with_preferred_ethernet(coordinator)
+    if reason == "static":
+        coordinator.config_entry.data["use_static_host"] = True
+    elif reason == "non_pro":
+        coordinator.hardware_info = GetHardwareRsp(version=HWVersion.PCIE)
+    elif reason == "no_preference":
+        coordinator.config_entry.data.pop("preferred_host")
+    else:
+        coordinator.config_entry.data[CONF_HOST] = "https://192.0.2.20"
+    factory = MagicMock(side_effect=AssertionError("unexpected preferred-host probe"))
+    monkeypatch.setattr(coordinator_module, "NanoKVMClient", factory)
+
+    assert await coordinator._async_update_data() == {"active_host": "wifi"}
+    factory.assert_not_called()
+    coordinator.hass.config_entries.async_update_entry.assert_not_called()
 
 
 async def test_update_data_retries_then_returns_success(
