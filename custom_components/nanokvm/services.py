@@ -13,7 +13,7 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.const import ATTR_DEVICE_ID
+from homeassistant.const import ATTR_DEVICE_ID, CONF_HOST
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
@@ -33,7 +33,6 @@ from .const import (
     ATTR_VERTICAL_COUNT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
-    CONF_HOST,
     CONF_PREFERRED_HOST,
     DOMAIN,
     LED_BEAD_MIN,

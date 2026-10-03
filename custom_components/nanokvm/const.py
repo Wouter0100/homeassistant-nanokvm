@@ -4,10 +4,7 @@ DOMAIN = "nanokvm"
 INTEGRATION_TITLE = "NanoKVM"
 
 # Configuration
-CONF_HOST = "host"
 CONF_PREFERRED_HOST = "preferred_host"
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
 CONF_USE_STATIC_HOST = "use_static_host"
 CONF_SSL_FINGERPRINT = "ssl_fingerprint"
 CONF_SSH_HOST_KEY = "ssh_host_key"

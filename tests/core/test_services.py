@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
+from homeassistant.const import CONF_HOST
 from homeassistant.core import ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from nanokvm.models import (
@@ -38,7 +39,6 @@ from custom_components.nanokvm.const import (
     ATTR_VERTICAL_COUNT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
-    CONF_HOST,
     DOMAIN,
     SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
     SERVICE_IMAGE_DOWNLOAD_ENABLED,
