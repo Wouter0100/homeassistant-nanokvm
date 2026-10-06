@@ -565,6 +565,7 @@ async def test_mouse_jiggler_maps_mode_enum(
     coordinator.client.set_mouse_jiggler_state.assert_awaited_once_with(
         False, expected_mode
     )
+    coordinator.async_request_refresh.assert_awaited_once_with()
 
 
 async def test_led_strip_requires_at_least_one_update_field(

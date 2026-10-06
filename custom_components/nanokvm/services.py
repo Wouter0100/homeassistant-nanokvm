@@ -184,6 +184,7 @@ _SERVICES: tuple[_Service, ...] = (
         call=lambda _, client, call: client.set_mouse_jiggler_state(
             call.data[ATTR_ENABLED], MouseJigglerMode(call.data[ATTR_MODE])
         ),
+        refresh=True,
     ),
     _Service(
         name=SERVICE_SET_LED_STRIP,
