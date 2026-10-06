@@ -117,6 +117,9 @@ async def async_set_led_strip(
 ) -> None:
     """Send a partial LED strip update, keeping the other settings as requested."""
     current = coordinator.led_strip
+    changes_settings = any(
+        value is not None for value in (brightness, horizontal_count, vertical_count)
+    )
     request = getattr(coordinator, "led_brightness_request", None)
     if (
         brightness is None
@@ -134,6 +137,9 @@ async def async_set_led_strip(
         horizontal_count=horizontal_count,
         vertical_count=vertical_count,
     )
+    if changes_settings and not config.on:
+        # The device accepts the request but ignores settings while off.
+        raise ValueError("Turn the LED strip on before changing its settings")
     await coordinator.client.set_led_strip(
         on=config.on,
         brightness=config.brightness,

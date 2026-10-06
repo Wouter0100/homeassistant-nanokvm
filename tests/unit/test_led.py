@@ -183,7 +183,7 @@ async def test_led_write_before_the_next_poll_reuses_the_pending_request() -> No
     """Two quick writes keep the brightness of the first one."""
     coordinator = _led_coordinator(brightness=68)
 
-    await async_set_led_strip(coordinator, brightness=40)
+    await async_set_led_strip(coordinator, on=True, brightness=40)
     await async_set_led_strip(coordinator, on=True)
 
     assert _sent_brightness(coordinator) == 40
@@ -206,12 +206,29 @@ async def test_led_toggle_follows_brightness_changed_outside_home_assistant() ->
 async def test_led_write_failure_keeps_the_previous_request() -> None:
     """A rejected or invalid write does not replace the remembered brightness."""
     coordinator = _led_coordinator(brightness=68)
-    await async_set_led_strip(coordinator, brightness=40)
+    await async_set_led_strip(coordinator, on=True, brightness=40)
     coordinator.client.set_led_strip.side_effect = RuntimeError("device busy")
 
     with pytest.raises(RuntimeError):
-        await async_set_led_strip(coordinator, brightness=90)
+        await async_set_led_strip(coordinator, on=True, brightness=90)
     with pytest.raises(ValueError):
-        await async_set_led_strip(coordinator, brightness=500)
+        await async_set_led_strip(coordinator, on=True, brightness=500)
 
     assert coordinator.led_brightness_request.requested == 40
+
+
+@pytest.mark.parametrize(
+    "change", [{"brightness": 40}, {"horizontal_count": 100}, {"vertical_count": 10}]
+)
+async def test_led_settings_are_rejected_while_the_strip_is_off(
+    change: dict[str, int],
+) -> None:
+    """The device ignores settings sent while off, so they are not sent at all."""
+    coordinator = _led_coordinator()
+
+    with pytest.raises(ValueError, match="Turn the LED strip on"):
+        await async_set_led_strip(coordinator, **change)
+    coordinator.client.set_led_strip.assert_not_awaited()
+
+    await async_set_led_strip(coordinator, on=True, **change)
+    coordinator.client.set_led_strip.assert_awaited_once()

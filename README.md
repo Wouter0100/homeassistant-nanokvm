@@ -145,6 +145,7 @@ Notes:
 
 - `push_button.duration` range is `100-5000` ms.
 - `set_led_strip.brightness` range is `0-100`; LED beads must satisfy `horizontal + (2 * vertical) <= 150`.
+- The Pro ignores LED settings while the strip is off, so brightness and bead counts can only be changed while it is on (or in the same call that turns it on).
 - `host` is optional when one NanoKVM is configured and required when multiple devices are configured.
 - Response services return structured data to callers that request a response.
 
