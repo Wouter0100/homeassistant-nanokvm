@@ -5,6 +5,7 @@ INTEGRATION_TITLE = "NanoKVM"
 
 # Configuration
 CONF_PREFERRED_HOST = "preferred_host"
+CONF_LED_BRIGHTNESS = "led_brightness"
 CONF_USE_STATIC_HOST = "use_static_host"
 CONF_SSL_FINGERPRINT = "ssl_fingerprint"
 CONF_SSH_HOST_KEY = "ssh_host_key"

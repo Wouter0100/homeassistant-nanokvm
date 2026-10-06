@@ -83,7 +83,10 @@ The integration follows the standard structure for a Home Assistant
 - **`led.py`**: Shared NanoKVM Pro LED strip validation and config helpers.
   - Enforces LED brightness and bead-count constraints for entities/services.
   - `async_set_led_strip` is the single write path. It remembers the requested
-    brightness, because the Pro can report a lower value than it stores.
+    brightness, because the Pro can report a lower value than it stores; the
+    coordinator saves it in the config entry so it survives a restart.
+  - Rejects brightness and bead-count changes while the strip is off, because
+    the Pro ignores them.
 
 - **`manifest.json`**: Integration metadata.
   - Domain, name, version, dependencies (including `zeroconf`).

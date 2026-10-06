@@ -105,7 +105,7 @@ def test_power_turn_on_uses_coordinator_client_access(
 def _coordinator() -> tuple[NanoKVMDataUpdateCoordinator, MagicMock]:
     """Create a coordinator with mocked Home Assistant dependencies."""
     hass = MagicMock()
-    entry = MagicMock(spec=ConfigEntry)
+    entry = MagicMock(spec=ConfigEntry, data={})
     coordinator = NanoKVMDataUpdateCoordinator(
         hass,
         entry,

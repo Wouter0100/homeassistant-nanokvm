@@ -100,11 +100,13 @@ def build_led_strip_config(
 
 def note_reported_led_strip(
     coordinator: NanoKVMDataUpdateCoordinator, reported: GetLedStripRsp | None
-) -> None:
+) -> bool:
     """Record the brightness reported by the first poll after a write."""
     request = getattr(coordinator, "led_brightness_request", None)
-    if request is not None and request.reported is None and reported is not None:
-        request.reported = reported.brightness
+    if request is None or request.reported is not None or reported is None:
+        return False
+    request.reported = reported.brightness
+    return True
 
 
 async def async_set_led_strip(

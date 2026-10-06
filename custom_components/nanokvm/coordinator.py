@@ -58,6 +58,7 @@ from nanokvm.models import (
 )
 
 from .const import (
+    CONF_LED_BRIGHTNESS,
     CONF_PREFERRED_HOST,
     CONF_SSH_HOST_KEY,
     CONF_SSL_FINGERPRINT,
@@ -185,7 +186,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
         self.password = password
         self.device_info = device_info
         self.ssh_known_hosts = ssh_known_hosts
-        self.led_brightness_request: LedBrightnessRequest | None = None
+        # Kept in the entry so a restart does not forget the requested value.
+        stored_brightness = config_entry.data.get(CONF_LED_BRIGHTNESS)
+        self.led_brightness_request: LedBrightnessRequest | None = (
+            LedBrightnessRequest(*stored_brightness)
+            if isinstance(stored_brightness, list) and len(stored_brightness) == 2
+            else None
+        )
         # Each creation signal is sent once; the platforms rely on that.
         self.media_entities_created = False
         self.network_entities_created: set[str] = set()
@@ -667,7 +674,13 @@ class NanoKVMDataUpdateCoordinator(DataUpdateCoordinator[None]):
             setattr(self, attribute, None)
         for attribute, value in results.items():
             setattr(self, attribute, value)
-        note_reported_led_strip(self, self.led_strip)
+        if note_reported_led_strip(self, self.led_strip):
+            request = self.led_brightness_request
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=self.config_entry.data
+                | {CONF_LED_BRIGHTNESS: [request.requested, request.reported]},
+            )
 
     def _async_schedule_app_version_refresh(self) -> None:
         """Refresh application version info outside the critical poll path."""

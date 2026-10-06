@@ -217,6 +217,51 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
 
 
+async def test_requested_led_brightness_survives_a_restart(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    config_entry_mock: MagicMock,
+) -> None:
+    """The brightness asked for is saved after a write and reloaded at startup."""
+    _configure_required_client_responses(coordinator.client, hardware=HWVersion.PRO)
+    coordinator.client.get_led_strip.return_value = GetLedStripRsp(
+        on=True, hor=114, ver=18, brightness=57
+    )
+    coordinator.led_brightness_request = coordinator_module.LedBrightnessRequest(68)
+
+    await coordinator._async_fetch_core_data()
+    await coordinator._async_fetch_core_data()
+
+    update = coordinator.hass.config_entries.async_update_entry
+    update.assert_called_once()
+    assert update.call_args.kwargs["data"]["led_brightness"] == [68, 57]
+
+    config_entry_mock.data["led_brightness"] = [68, 57]
+    restarted = NanoKVMDataUpdateCoordinator(
+        coordinator.hass,
+        config_entry_mock,
+        client=coordinator.client,
+        username="admin",
+        password="password",
+        device_info=coordinator.device_info,
+    )
+    assert restarted.led_brightness_request == coordinator_module.LedBrightnessRequest(
+        68, 57
+    )
+
+    config_entry_mock.data["led_brightness"] = "corrupt"
+    assert (
+        NanoKVMDataUpdateCoordinator(
+            coordinator.hass,
+            config_entry_mock,
+            client=coordinator.client,
+            username="admin",
+            password="password",
+            device_info=coordinator.device_info,
+        ).led_brightness_request
+        is None
+    )
+
+
 def test_refresh_requests_use_a_short_cooldown(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:
