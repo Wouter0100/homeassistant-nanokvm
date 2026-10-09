@@ -57,7 +57,6 @@ def test_switch_descriptions_expose_stable_inventory() -> None:
     assert all(
         description.translation_key == description.key for description in SWITCHES
     )
-    assert all(description.icon for description in (*SWITCHES, *SSH_SWITCHES))
     assert (
         next(item for item in SWITCHES if item.key == "power").entity_category is None
     )
@@ -169,12 +168,12 @@ def test_virtual_device_availability_separates_hardware_families(
 ) -> None:
     """Legacy and Pro virtual-device descriptions must be mutually exclusive."""
     non_pro = coordinator_state_factory(
-        supports_non_pro_virtual_device_controls=True,
+        is_non_pro_hardware=True,
         is_pro_hardware=False,
         virtual_device_info=SimpleNamespace(mic=None),
     )
     pro = coordinator_state_factory(
-        supports_non_pro_virtual_device_controls=False,
+        is_non_pro_hardware=False,
         is_pro_hardware=True,
         virtual_device_info=SimpleNamespace(mic=False),
     )

@@ -18,7 +18,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
-    ICON_LED_STRIP,
     LED_BEAD_MIN,
     LED_BEAD_TOTAL_LIMIT,
     LED_BRIGHTNESS_MAX,
@@ -41,9 +40,7 @@ class NanoKVMNumberEntityDescription(NumberEntityDescription):
     max_value_fn: Callable[[NanoKVMDataUpdateCoordinator], float] = (
         lambda _: LED_BEAD_TOTAL_LIMIT
     )
-    set_value_fn: Callable[
-        [NanoKVMDataUpdateCoordinator, float], Awaitable[Any]
-    ] | None = None
+    set_value_fn: Callable[[NanoKVMDataUpdateCoordinator, float], Awaitable[Any]]
 
 
 def _has_led_strip(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -116,9 +113,7 @@ async def _set_led_vertical_count(
 NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     NanoKVMNumberEntityDescription(
         key="led_brightness",
-        name="LED Brightness",
         translation_key="led_brightness",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BRIGHTNESS_MIN,
         native_max_value=LED_BRIGHTNESS_MAX,
@@ -133,9 +128,7 @@ NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     ),
     NanoKVMNumberEntityDescription(
         key="led_horizontal_beads",
-        name="LED Horizontal Beads",
         translation_key="led_horizontal_beads",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BEAD_MIN,
         native_max_value=LED_BEAD_TOTAL_LIMIT - 2,
@@ -149,9 +142,7 @@ NUMBERS: tuple[NanoKVMNumberEntityDescription, ...] = (
     ),
     NanoKVMNumberEntityDescription(
         key="led_vertical_beads",
-        name="LED Vertical Beads",
         translation_key="led_vertical_beads",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         native_min_value=LED_BEAD_MIN,
         native_max_value=(LED_BEAD_TOTAL_LIMIT - 1) // 2,
@@ -225,11 +216,6 @@ class NanoKVMNumber(NanoKVMEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the number value."""
-        if self.entity_description.set_value_fn is None:
-            raise RuntimeError(
-                f"Missing number handler for number: {self.entity_description.key}"
-            )
-
         try:
             async with self._async_device_action():
                 await self.entity_description.set_value_fn(self.coordinator, value)

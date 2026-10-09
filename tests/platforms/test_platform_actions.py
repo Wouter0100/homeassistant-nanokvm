@@ -89,18 +89,6 @@ async def test_button_press_uses_serialized_client_and_refreshes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_button_without_handler_raises() -> None:
-    """A malformed button description must fail clearly instead of doing nothing."""
-    entity = button_module.NanoKVMButton(
-        _coordinator(),
-        button_module.NanoKVMButtonEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(RuntimeError, match="Missing press handler for button: missing"):
-        await entity.async_press()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("key", "value", "expected"),
     [
@@ -170,20 +158,6 @@ async def test_number_validation_error_becomes_home_assistant_error() -> None:
     coordinator.async_request_refresh.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_number_without_handler_raises() -> None:
-    """A malformed number description must fail before client access."""
-    entity = number_module.NanoKVMNumber(
-        _coordinator(),
-        number_module.NanoKVMNumberEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(
-        RuntimeError, match="Missing number handler for number: missing"
-    ):
-        await entity.async_set_native_value(1)
-
-
 def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
     """Number properties must delegate to the description and coordinator health."""
     coordinator = _coordinator()
@@ -206,7 +180,6 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
     ("key", "option", "method", "expected_args", "expected_kwargs"),
     [
         ("hid_mode", "hid_only", "set_hid_mode", (HidMode.HID_ONLY,), {}),
-        ("hid_mode", "unknown", "set_hid_mode", (HidMode.NORMAL,), {}),
         (
             "mouse_jiggler_mode",
             "relative_mode",
@@ -222,9 +195,7 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
             {},
         ),
         ("oled_sleep_timeout", "30_sec", "set_oled_sleep", (30,), {}),
-        ("oled_sleep_timeout", "unknown", "set_oled_sleep", (0,), {}),
         ("swap_size", "128_mb", "set_swap_size", (128,), {}),
-        ("swap_size", "unknown", "set_swap_size", (0,), {}),
         (
             "lcd_time_format",
             "12h",
@@ -233,25 +204,11 @@ def test_number_entity_exposes_dynamic_value_bounds_and_availability() -> None:
             {},
         ),
         (
-            "lcd_time_format",
-            "unknown",
-            "set_lcd_time_format",
-            (LcdTimeFormat.TWENTY_FOUR_HOUR,),
-            {},
-        ),
-        (
             "virtual_disk_type",
             "sdcard",
             "update_virtual_device",
             (VirtualDevice.DISK,),
             {"disk_type": DiskType.SDCARD},
-        ),
-        (
-            "virtual_disk_type",
-            "unknown",
-            "update_virtual_device",
-            (VirtualDevice.DISK,),
-            {"disk_type": DiskType.EMMC},
         ),
     ],
 )
@@ -298,20 +255,6 @@ def test_select_entity_exposes_static_and_dynamic_options() -> None:
     assert static.options == ["normal", "hid_only"]
     assert dynamic.current_option == "emmc"
     assert dynamic.options == ["emmc"]
-
-
-@pytest.mark.asyncio
-async def test_select_without_handler_raises() -> None:
-    """A malformed select description must fail before client access."""
-    entity = select_module.NanoKVMSelect(
-        _coordinator(),
-        select_module.NanoKVMSelectEntityDescription(key="missing"),
-    )
-
-    with pytest.raises(
-        RuntimeError, match="Missing select handler for select: missing"
-    ):
-        await entity.async_select_option("anything")
 
 
 def test_binary_sensor_and_sensor_entities_expose_coordinator_data() -> None:
@@ -648,7 +591,7 @@ async def test_entity_actions_translate_device_failures(
 
 def _update_entity(coordinator: SimpleNamespace) -> update_module.NanoKVMUpdate:
     """Create the application update entity."""
-    return update_module.NanoKVMUpdate(coordinator, update_module.UPDATES[0])
+    return update_module.NanoKVMUpdate(coordinator)
 
 
 @pytest.mark.asyncio

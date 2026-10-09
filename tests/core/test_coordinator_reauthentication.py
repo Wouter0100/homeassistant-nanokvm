@@ -20,7 +20,7 @@ def _coordinator() -> NanoKVMDataUpdateCoordinator:
     """Create a coordinator with mocked Home Assistant dependencies."""
     return NanoKVMDataUpdateCoordinator(
         MagicMock(),
-        MagicMock(spec=ConfigEntry),
+        MagicMock(spec=ConfigEntry, data={}),
         client=MagicMock(),
         username="admin",
         password="password",

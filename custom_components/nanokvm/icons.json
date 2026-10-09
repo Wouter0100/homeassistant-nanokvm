@@ -1,0 +1,155 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "cdrom_mode": {
+        "default": "mdi:harddisk"
+      },
+      "hdd_led": {
+        "default": "mdi:harddisk"
+      },
+      "power_led": {
+        "default": "mdi:power"
+      },
+      "static_ip_enabled": {
+        "default": "mdi:ethernet"
+      },
+      "time_synchronized": {
+        "default": "mdi:clock-check-outline"
+      },
+      "wifi_connected": {
+        "default": "mdi:wifi"
+      },
+      "wired_connected": {
+        "default": "mdi:ethernet"
+      }
+    },
+    "button": {
+      "power": {
+        "default": "mdi:power"
+      },
+      "reboot": {
+        "default": "mdi:restart"
+      },
+      "reset": {
+        "default": "mdi:restart"
+      },
+      "reset_hdmi": {
+        "default": "mdi:keyboard-variant"
+      },
+      "reset_hid": {
+        "default": "mdi:keyboard"
+      },
+      "sync_time": {
+        "default": "mdi:clock-outline"
+      }
+    },
+    "camera": {
+      "hdmi": {
+        "default": "mdi:video-input-hdmi"
+      }
+    },
+    "number": {
+      "led_brightness": {
+        "default": "mdi:led-strip-variant"
+      },
+      "led_horizontal_beads": {
+        "default": "mdi:led-strip-variant"
+      },
+      "led_vertical_beads": {
+        "default": "mdi:led-strip-variant"
+      }
+    },
+    "select": {
+      "hid_mode": {
+        "default": "mdi:keyboard"
+      },
+      "lcd_time_format": {
+        "default": "mdi:clock-digital"
+      },
+      "mouse_jiggler_mode": {
+        "default": "mdi:mouse"
+      },
+      "oled_sleep_timeout": {
+        "default": "mdi:monitor-small"
+      },
+      "swap_size": {
+        "default": "mdi:harddisk"
+      },
+      "virtual_disk_type": {
+        "default": "mdi:harddisk"
+      }
+    },
+    "sensor": {
+      "cpu_temperature": {
+        "default": "mdi:thermometer"
+      },
+      "ip_address": {
+        "default": "mdi:ethernet"
+      },
+      "memory_used_percent": {
+        "default": "mdi:memory"
+      },
+      "mounted_image": {
+        "default": "mdi:disc"
+      },
+      "storage_used_percent": {
+        "default": "mdi:harddisk"
+      },
+      "tailscale_state": {
+        "default": "mdi:ethernet"
+      },
+      "uptime": {
+        "default": "mdi:console"
+      },
+      "wired_ip_address": {
+        "default": "mdi:ethernet"
+      },
+      "wireless_ip_address": {
+        "default": "mdi:wifi"
+      }
+    },
+    "switch": {
+      "hdmi": {
+        "default": "mdi:video-input-hdmi"
+      },
+      "hdmi_capture": {
+        "default": "mdi:video-input-hdmi"
+      },
+      "hdmi_passthrough": {
+        "default": "mdi:video-input-hdmi"
+      },
+      "led_strip": {
+        "default": "mdi:led-strip-variant"
+      },
+      "low_power": {
+        "default": "mdi:power-sleep"
+      },
+      "mdns": {
+        "default": "mdi:dns"
+      },
+      "power": {
+        "default": "mdi:power"
+      },
+      "ssh": {
+        "default": "mdi:console"
+      },
+      "virtual_disk": {
+        "default": "mdi:harddisk"
+      },
+      "virtual_mic": {
+        "default": "mdi:microphone"
+      },
+      "virtual_network": {
+        "default": "mdi:ethernet"
+      },
+      "watchdog": {
+        "default": "mdi:shield-refresh"
+      }
+    },
+    "update": {
+      "application": {
+        "default": "mdi:update"
+      }
+    }
+  }
+}

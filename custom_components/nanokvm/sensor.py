@@ -21,12 +21,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .const import (
     DOMAIN,
-    ICON_DISK,
-    ICON_IMAGE,
-    ICON_NETWORK,
     SIGNAL_NEW_MEDIA_ENTITIES,
     SIGNAL_NEW_NETWORK_ENTITIES,
-    ICON_SSH,
     SIGNAL_NEW_SSH_SENSORS,
 )
 from .entity import NanoKVMEntity
@@ -183,9 +179,7 @@ class NanoKVMSensorEntityDescription(SensorEntityDescription):
 MEDIA_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="mounted_image",
-        name="Mounted Image",
         translation_key="mounted_image",
-        icon=ICON_IMAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_mounted_image_value,
         should_create_fn=_has_mounted_image,
@@ -196,9 +190,7 @@ MEDIA_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
 SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="ip_address",
-        name="IP Address",
         translation_key="ip_address",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_primary_ip_address,
         available_fn=lambda coordinator: _primary_ip_address(coordinator) is not None,
@@ -206,9 +198,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     ),
     NanoKVMSensorEntityDescription(
         key="tailscale_state",
-        name="Tailscale",
         translation_key="tailscale_state",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_tailscale_state_value,
         attributes_fn=_tailscale_attributes,
@@ -218,9 +208,7 @@ SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
 NETWORK_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="wired_ip_address",
-        name="Wired IP Address",
         translation_key="wired_ip_address",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.DIAGNOSTIC,
         connection_type="wired",
         value_fn=lambda coordinator: _connection_ip_value(coordinator, "wired"),
@@ -234,9 +222,7 @@ NETWORK_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     ),
     NanoKVMSensorEntityDescription(
         key="wireless_ip_address",
-        name="Wireless IP Address",
         translation_key="wireless_ip_address",
-        icon="mdi:wifi",
         entity_category=EntityCategory.DIAGNOSTIC,
         connection_type="wireless",
         value_fn=lambda coordinator: _connection_ip_value(coordinator, "wireless"),
@@ -253,9 +239,7 @@ NETWORK_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
 SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     NanoKVMSensorEntityDescription(
         key="uptime",
-        name="Uptime",
         translation_key="uptime",
-        icon=ICON_SSH,
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda coordinator: coordinator.uptime,
@@ -263,9 +247,7 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     ),
     NanoKVMSensorEntityDescription(
         key="cpu_temperature",
-        name="CPU Temperature",
         translation_key="cpu_temperature",
-        icon="mdi:thermometer",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -275,9 +257,7 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     ),
     NanoKVMSensorEntityDescription(
         key="memory_used_percent",
-        name="Memory Used",
         translation_key="memory_used_percent",
-        icon="mdi:memory",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -287,9 +267,7 @@ SSH_SENSORS: tuple[NanoKVMSensorEntityDescription, ...] = (
     ),
     NanoKVMSensorEntityDescription(
         key="storage_used_percent",
-        name="Storage Used",
         translation_key="storage_used_percent",
-        icon=ICON_DISK,
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -342,15 +320,9 @@ async def async_setup_entry(
         async_add_entities(entities)
         network_sensor_keys_added.update(entity.entity_description.key for entity in entities)
 
-    media_entities_added = False
-
     @callback
     def async_add_media_sensors() -> None:
         """Add media-backed sensors when media is first mounted."""
-        nonlocal media_entities_added
-        if media_entities_added:
-            _LOGGER.debug("Media sensors already registered, ignoring create signal")
-            return
         if not _has_mounted_image(coordinator):
             return
 
@@ -362,22 +334,14 @@ async def async_setup_entry(
             )
             for description in MEDIA_SENSORS
         )
-        media_entities_added = True
 
     if _has_mounted_image(coordinator):
         _LOGGER.debug("Mounted image already present during setup, creating media sensors")
         async_add_media_sensors()
 
-    ssh_entities_added = False
-
     @callback
     def async_add_ssh_sensors() -> None:
         """Add SSH sensors when SSH is enabled."""
-        nonlocal ssh_entities_added
-        if ssh_entities_added:
-            _LOGGER.debug("SSH sensors already registered, ignoring create signal")
-            return
-
         _LOGGER.debug("Creating SSH sensors")
         async_add_entities(
             NanoKVMSensor(
@@ -386,7 +350,6 @@ async def async_setup_entry(
             )
             for description in SSH_SENSORS
         )
-        ssh_entities_added = True
         coordinator.ssh_sensors_created = True
 
     if coordinator.ssh_state and coordinator.ssh_state.enabled:

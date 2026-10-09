@@ -217,6 +217,51 @@ def test_invalid_file_content_error_requires_matching_code_and_message() -> None
     assert _format_timeout_error("testing") == "Timed out testing after 10 seconds"
 
 
+async def test_requested_led_brightness_survives_a_restart(
+    coordinator: NanoKVMDataUpdateCoordinator,
+    config_entry_mock: MagicMock,
+) -> None:
+    """The brightness asked for is saved after a write and reloaded at startup."""
+    _configure_required_client_responses(coordinator.client, hardware=HWVersion.PRO)
+    coordinator.client.get_led_strip.return_value = GetLedStripRsp(
+        on=True, hor=114, ver=18, brightness=57
+    )
+    coordinator.led_brightness_request = coordinator_module.LedBrightnessRequest(68)
+
+    await coordinator._async_fetch_core_data()
+    await coordinator._async_fetch_core_data()
+
+    update = coordinator.hass.config_entries.async_update_entry
+    update.assert_called_once()
+    assert update.call_args.kwargs["data"]["led_brightness"] == [68, 57]
+
+    config_entry_mock.data["led_brightness"] = [68, 57]
+    restarted = NanoKVMDataUpdateCoordinator(
+        coordinator.hass,
+        config_entry_mock,
+        client=coordinator.client,
+        username="admin",
+        password="password",
+        device_info=coordinator.device_info,
+    )
+    assert restarted.led_brightness_request == coordinator_module.LedBrightnessRequest(
+        68, 57
+    )
+
+    config_entry_mock.data["led_brightness"] = "corrupt"
+    assert (
+        NanoKVMDataUpdateCoordinator(
+            coordinator.hass,
+            config_entry_mock,
+            client=coordinator.client,
+            username="admin",
+            password="password",
+            device_info=coordinator.device_info,
+        ).led_brightness_request
+        is None
+    )
+
+
 def test_refresh_requests_use_a_short_cooldown(
     coordinator: NanoKVMDataUpdateCoordinator,
 ) -> None:
@@ -759,9 +804,8 @@ async def test_fetch_with_client_authenticates_and_runs_fetch_groups(
     coordinator._async_maybe_create_network_entities = MagicMock()
     coordinator._async_maybe_create_media_entities = MagicMock()
     coordinator._async_schedule_app_version_refresh = MagicMock()
-    coordinator._build_update_data = MagicMock(return_value={"ready": True})
 
-    assert await coordinator._async_fetch_with_client() == {"ready": True}
+    await coordinator._async_fetch_with_client()
     coordinator.client.authenticate.assert_awaited_once_with("admin", "password")
     coordinator._async_fetch_core_data.assert_awaited_once_with()
     coordinator._async_fetch_storage_data.assert_awaited_once_with()
@@ -1276,44 +1320,6 @@ async def test_storage_fetch_uses_defaults_outside_normal_hid_mode(
     coordinator.client.get_mounted_image.assert_not_awaited()
 
 
-def test_build_update_data_returns_complete_state_snapshot(
-    coordinator: NanoKVMDataUpdateCoordinator,
-) -> None:
-    """The coordinator snapshot includes every entity-facing API field."""
-    keys = (
-        "device_info",
-        "hardware_info",
-        "gpio_info",
-        "virtual_device_info",
-        "ssh_state",
-        "mdns_state",
-        "hid_mode",
-        "oled_info",
-        "wifi_status",
-        "application_version_info",
-        "mounted_image",
-        "cdrom_status",
-        "mouse_jiggler_state",
-        "hdmi_state",
-        "hdmi_capture",
-        "hdmi_passthrough",
-        "low_power",
-        "led_strip",
-        "lcd_time_format",
-        "time_status",
-        "static_ip",
-        "swap_size",
-        "tailscale_status",
-        "hostname_info",
-        "watchdog_enabled",
-    )
-    expected = {key: object() for key in keys}
-    for key, value in expected.items():
-        setattr(coordinator, key, value)
-
-    assert coordinator._build_update_data() == expected
-
-
 @pytest.mark.parametrize(
     ("application", "expected"),
     [
@@ -1372,10 +1378,10 @@ def test_hardware_capability_properties(
     )
 
     assert coordinator.is_pro_hardware is is_pro
-    assert coordinator.supports_non_pro_virtual_device_controls is non_pro_virtual
+    assert coordinator.is_non_pro_hardware is non_pro_virtual
     assert coordinator.supports_hdmi_endpoint is hdmi
-    assert coordinator.supports_swap_size is swap
-    assert coordinator.supports_cdrom_endpoint is cdrom
+    assert coordinator.is_non_pro_hardware is swap
+    assert coordinator.is_non_pro_hardware is cdrom
 
 
 def test_active_network_connection_types_are_normalized_and_deduplicated(
@@ -1404,7 +1410,9 @@ async def test_ensure_ssh_collector_creates_once_and_reuses(
 
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
     assert await coordinator.async_ensure_ssh_metrics_collector() is collector
-    factory.assert_called_once_with(host="nanokvm.local", password="password")
+    factory.assert_called_once_with(
+        host="nanokvm.local", password="password", known_hosts=None
+    )
 
 
 async def test_ensure_ssh_collector_forwards_known_hosts_path(

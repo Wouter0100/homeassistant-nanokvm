@@ -34,19 +34,12 @@ class SSHMetricsCollector:
     ) -> None:
         """Initialize the SSH collector."""
         self._password = password
-        if known_hosts is None:
-            self._client = NanoKVMSSH(
-                host=host,
-                username=username,
-                allow_unknown_host_key=False,
-            )
-        else:
-            self._client = NanoKVMSSH(
-                host=host,
-                username=username,
-                known_hosts=known_hosts,
-                allow_unknown_host_key=False,
-            )
+        self._client = NanoKVMSSH(
+            host=host,
+            username=username,
+            known_hosts=known_hosts,
+            allow_unknown_host_key=False,
+        )
 
     async def disconnect(self) -> None:
         """Disconnect the underlying SSH client if connected."""

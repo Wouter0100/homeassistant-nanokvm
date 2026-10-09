@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import voluptuous as vol
@@ -13,7 +14,7 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.const import ATTR_DEVICE_ID
+from homeassistant.const import ATTR_DEVICE_ID, CONF_HOST
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
@@ -33,7 +34,6 @@ from .const import (
     ATTR_VERTICAL_COUNT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
-    CONF_HOST,
     CONF_PREFERRED_HOST,
     DOMAIN,
     LED_BEAD_MIN,
@@ -59,22 +59,6 @@ from .led import async_set_led_strip
 from .utils import host_match_key
 
 _LOGGER = logging.getLogger(__name__)
-
-_SERVICE_NAMES = (
-    SERVICE_PUSH_BUTTON,
-    SERVICE_PASTE_TEXT,
-    SERVICE_REBOOT,
-    SERVICE_RESET_HDMI,
-    SERVICE_RESET_HID,
-    SERVICE_WAKE_ON_LAN,
-    SERVICE_SET_MOUSE_JIGGLER,
-    SERVICE_SET_LED_STRIP,
-    SERVICE_SCAN_WIFI,
-    SERVICE_LIST_IMAGES,
-    SERVICE_IMAGE_DOWNLOAD_ENABLED,
-    SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
-    SERVICE_LIST_CUSTOM_EDIDS,
-)
 
 _OPTIONAL_HOST_FIELD = {
     vol.Optional(ATTR_DEVICE_ID): vol.All(str, vol.Length(min=1)),
@@ -132,15 +116,6 @@ SET_LED_STRIP_SCHEMA = vol.Schema(
     }
 )
 
-def _model_to_response(value: Any) -> ServiceResponse:
-    """Convert pydantic responses into Home Assistant service responses."""
-    if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
-    if isinstance(value, dict):
-        return value
-    return {"value": value}
-
-
 def _ensure_pro(coordinator: NanoKVMDataUpdateCoordinator, service_name: str) -> None:
     """Raise when a service requires NanoKVM Pro hardware."""
     if not coordinator.is_pro_hardware:
@@ -149,392 +124,219 @@ def _ensure_pro(coordinator: NanoKVMDataUpdateCoordinator, service_name: str) ->
         )
 
 
+@dataclass(frozen=True, kw_only=True)
+class _Service:
+    """One registered service: its schema and the device call it makes."""
+
+    name: str
+    call: Callable[
+        [NanoKVMDataUpdateCoordinator, NanoKVMClient, ServiceCall], Awaitable[Any]
+    ]
+    schema: vol.Schema = field(default_factory=lambda: HOST_ONLY_SCHEMA)
+    pro_only: bool = False
+    returns_response: bool = False
+    refresh: bool = False
+
+
+async def _set_led_strip(
+    coordinator: NanoKVMDataUpdateCoordinator, client: NanoKVMClient, call: ServiceCall
+) -> None:
+    """Apply the LED strip fields given in the service call."""
+    try:
+        await async_set_led_strip(
+            coordinator,
+            on=call.data.get(ATTR_ON),
+            brightness=call.data.get(ATTR_BRIGHTNESS),
+            horizontal_count=call.data.get(ATTR_HORIZONTAL_COUNT),
+            vertical_count=call.data.get(ATTR_VERTICAL_COUNT),
+        )
+    except ValueError as err:
+        raise HomeAssistantError(str(err)) from err
+
+
+_SERVICES: tuple[_Service, ...] = (
+    _Service(
+        name=SERVICE_PUSH_BUTTON,
+        schema=PUSH_BUTTON_SCHEMA,
+        call=lambda _, client, call: client.push_button(
+            GpioType.POWER
+            if call.data[ATTR_BUTTON_TYPE] == BUTTON_TYPE_POWER
+            else GpioType.RESET,
+            call.data[ATTR_DURATION],
+        ),
+    ),
+    _Service(
+        name=SERVICE_PASTE_TEXT,
+        schema=PASTE_TEXT_SCHEMA,
+        call=lambda _, client, call: client.paste_text(call.data[ATTR_TEXT]),
+    ),
+    _Service(name=SERVICE_REBOOT, call=lambda _, client, call: client.reboot_system()),
+    _Service(name=SERVICE_RESET_HDMI, call=lambda _, client, call: client.reset_hdmi()),
+    _Service(name=SERVICE_RESET_HID, call=lambda _, client, call: client.reset_hid()),
+    _Service(
+        name=SERVICE_WAKE_ON_LAN,
+        schema=WAKE_ON_LAN_SCHEMA,
+        call=lambda _, client, call: client.send_wake_on_lan(call.data[ATTR_MAC]),
+    ),
+    _Service(
+        name=SERVICE_SET_MOUSE_JIGGLER,
+        schema=SET_MOUSE_JIGGLER_SCHEMA,
+        call=lambda _, client, call: client.set_mouse_jiggler_state(
+            call.data[ATTR_ENABLED], MouseJigglerMode(call.data[ATTR_MODE])
+        ),
+        refresh=True,
+    ),
+    _Service(
+        name=SERVICE_SET_LED_STRIP,
+        schema=SET_LED_STRIP_SCHEMA,
+        call=_set_led_strip,
+        pro_only=True,
+        refresh=True,
+    ),
+    _Service(
+        name=SERVICE_SCAN_WIFI,
+        call=lambda _, client, call: client.scan_wifi(),
+        pro_only=True,
+        returns_response=True,
+    ),
+    _Service(
+        name=SERVICE_LIST_IMAGES,
+        call=lambda _, client, call: client.get_images(),
+        returns_response=True,
+    ),
+    _Service(
+        name=SERVICE_IMAGE_DOWNLOAD_ENABLED,
+        call=lambda _, client, call: client.is_image_download_enabled(),
+        returns_response=True,
+    ),
+    _Service(
+        name=SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
+        call=lambda _, client, call: client.get_image_download_status(),
+        returns_response=True,
+    ),
+    _Service(
+        name=SERVICE_LIST_CUSTOM_EDIDS,
+        call=lambda _, client, call: client.get_custom_edid_list(),
+        pro_only=True,
+        returns_response=True,
+    ),
+)
+
+
+def _resolve_target_coordinator(
+    hass: HomeAssistant, call: ServiceCall
+) -> NanoKVMDataUpdateCoordinator:
+    """Resolve the single NanoKVM device targeted by a service call."""
+    domain_data = hass.data.get(DOMAIN, {})
+    coordinators = list(domain_data.values())
+    if not coordinators:
+        raise ServiceValidationError("No NanoKVM devices are configured")
+
+    device_id = call.data.get(ATTR_DEVICE_ID)
+    if device_id is not None:
+        device = dr.async_get(hass).async_get(device_id)
+        for entry_id in device.config_entries if device is not None else ():
+            if entry_id in domain_data:
+                return domain_data[entry_id]
+        raise ServiceValidationError(
+            f"No NanoKVM device is configured for device {device_id}"
+        )
+
+    requested_host = call.data.get(CONF_HOST)
+    if requested_host is None:
+        if len(coordinators) == 1:
+            return coordinators[0]
+        raise ServiceValidationError(
+            "Multiple NanoKVM devices are configured; specify the device_id or host field to target one device"
+        )
+
+    # An entry on a fallback address still answers to its preferred host.
+    requested_host_key = host_match_key(requested_host)
+    matches = [
+        coordinator
+        for coordinator in coordinators
+        if requested_host_key
+        in {
+            host_match_key(host)
+            for host in (
+                coordinator.config_entry.data[CONF_HOST],
+                coordinator.config_entry.data.get(CONF_PREFERRED_HOST),
+            )
+            if isinstance(host, str)
+        }
+    ]
+
+    if not matches:
+        raise ServiceValidationError(f"No NanoKVM device is configured for host {requested_host}")
+
+    if len(matches) > 1:
+        raise ServiceValidationError(
+            f"Multiple NanoKVM devices match host {requested_host}; fix the duplicate configuration before calling this service"
+        )
+
+    return matches[0]
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Register integration services."""
     if hass.services.has_service(DOMAIN, SERVICE_PUSH_BUTTON):
         return
 
-    def _resolve_target_coordinator(call: ServiceCall) -> NanoKVMDataUpdateCoordinator:
-        """Resolve the single NanoKVM device targeted by a service call."""
-        domain_data = hass.data.get(DOMAIN, {})
-        coordinators = list(domain_data.values())
-        if not coordinators:
-            raise ServiceValidationError("No NanoKVM devices are configured")
-
-        device_id = call.data.get(ATTR_DEVICE_ID)
-        if device_id is not None:
-            device = dr.async_get(hass).async_get(device_id)
-            for entry_id in device.config_entries if device is not None else ():
-                if entry_id in domain_data:
-                    return domain_data[entry_id]
-            raise ServiceValidationError(
-                f"No NanoKVM device is configured for device {device_id}"
-            )
-
-        requested_host = call.data.get(CONF_HOST)
-        if requested_host is None:
-            if len(coordinators) == 1:
-                return coordinators[0]
-            raise ServiceValidationError(
-                "Multiple NanoKVM devices are configured; specify the device_id or host field to target one device"
-            )
-
-        # An entry on a fallback address still answers to its preferred host.
-        requested_host_key = host_match_key(requested_host)
-        matches = [
-            coordinator
-            for coordinator in coordinators
-            if requested_host_key
-            in {
-                host_match_key(host)
-                for host in (
-                    coordinator.config_entry.data[CONF_HOST],
-                    coordinator.config_entry.data.get(CONF_PREFERRED_HOST),
+    def make_handler(
+        service: _Service,
+    ) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+        async def handle(call: ServiceCall) -> ServiceResponse:
+            if service.name == SERVICE_SET_LED_STRIP and not any(
+                field in call.data
+                for field in (
+                    ATTR_ON,
+                    ATTR_BRIGHTNESS,
+                    ATTR_HORIZONTAL_COUNT,
+                    ATTR_VERTICAL_COUNT,
                 )
-                if isinstance(host, str)
-            }
-        ]
+            ):
+                raise HomeAssistantError("At least one LED strip field is required")
 
-        if not matches:
-            raise ServiceValidationError(f"No NanoKVM device is configured for host {requested_host}")
-
-        if len(matches) > 1:
-            raise ServiceValidationError(
-                f"Multiple NanoKVM devices match host {requested_host}; fix the duplicate configuration before calling this service"
-            )
-
-        return matches[0]
-
-    async def _execute_service(
-        call: ServiceCall,
-        service_name: str,
-        handler: Callable[
-            [NanoKVMDataUpdateCoordinator, NanoKVMClient, str], Awaitable[None]
-        ],
-    ) -> None:
-        """Execute a service on the targeted NanoKVM device."""
-        coordinator = _resolve_target_coordinator(call)
-        host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
-
-        try:
-            async with coordinator.async_client() as client:
-                await handler(coordinator, client, host)
-        except HomeAssistantError:
-            raise
-        except Exception as err:
-            _LOGGER.error(
-                "Error executing %s service for %s: %s", service_name, host, err
-            )
-            raise HomeAssistantError(
-                f"Failed to execute {service_name} for {host}: {err}"
-            ) from err
-
-    async def _execute_response_service(
-        call: ServiceCall,
-        service_name: str,
-        handler: Callable[
-            [NanoKVMDataUpdateCoordinator, NanoKVMClient, str], Awaitable[Any]
-        ],
-    ) -> ServiceResponse:
-        """Execute a response-returning service on the targeted NanoKVM device."""
-        coordinator = _resolve_target_coordinator(call)
-        host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
-
-        try:
-            async with coordinator.async_client() as client:
-                return _model_to_response(await handler(coordinator, client, host))
-        except HomeAssistantError:
-            raise
-        except Exception as err:
-            _LOGGER.error(
-                "Error executing %s service for %s: %s", service_name, host, err
-            )
-            raise HomeAssistantError(
-                f"Failed to execute {service_name} for {host}: {err}"
-            ) from err
-
-    async def handle_push_button(call: ServiceCall) -> None:
-        """Handle the push button service."""
-        button_type = call.data[ATTR_BUTTON_TYPE]
-        duration = call.data[ATTR_DURATION]
-        gpio_type = GpioType.POWER if button_type == BUTTON_TYPE_POWER else GpioType.RESET
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.push_button(gpio_type, duration)
-            _LOGGER.debug("Button %s pushed for %d ms on %s", button_type, duration, host)
-
-        await _execute_service(call, SERVICE_PUSH_BUTTON, service_logic)
-
-    async def handle_paste_text(call: ServiceCall) -> None:
-        """Handle the paste text service."""
-        text = call.data[ATTR_TEXT]
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.paste_text(text)
-            _LOGGER.debug("Text pasted on %s", host)
-
-        await _execute_service(call, SERVICE_PASTE_TEXT, service_logic)
-
-    async def handle_reboot(call: ServiceCall) -> None:
-        """Handle the reboot service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.reboot_system()
-            _LOGGER.debug("System reboot initiated on %s", host)
-
-        await _execute_service(call, SERVICE_REBOOT, service_logic)
-
-    async def handle_reset_hdmi(call: ServiceCall) -> None:
-        """Handle the reset HDMI service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.reset_hdmi()
-            _LOGGER.debug("HDMI reset initiated on %s", host)
-
-        await _execute_service(call, SERVICE_RESET_HDMI, service_logic)
-
-    async def handle_reset_hid(call: ServiceCall) -> None:
-        """Handle the reset HID service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.reset_hid()
-            _LOGGER.debug("HID reset initiated on %s", host)
-
-        await _execute_service(call, SERVICE_RESET_HID, service_logic)
-
-    async def handle_wake_on_lan(call: ServiceCall) -> None:
-        """Handle the wake on LAN service."""
-        mac = call.data[ATTR_MAC]
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.send_wake_on_lan(mac)
-            _LOGGER.debug("Wake on LAN packet sent to %s via %s", mac, host)
-
-        await _execute_service(call, SERVICE_WAKE_ON_LAN, service_logic)
-
-    async def handle_set_mouse_jiggler(call: ServiceCall) -> None:
-        """Handle the set mouse jiggler service."""
-        enabled = call.data[ATTR_ENABLED]
-        mode_str = call.data[ATTR_MODE]
-        mode = (
-            MouseJigglerMode.ABSOLUTE
-            if mode_str == MouseJigglerMode.ABSOLUTE.value
-            else MouseJigglerMode.RELATIVE
-        )
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            await client.set_mouse_jiggler_state(enabled, mode)
-            _LOGGER.debug(
-                "Mouse jiggler on %s set to %s with mode %s", host, enabled, mode_str
-            )
-
-        await _execute_service(call, SERVICE_SET_MOUSE_JIGGLER, service_logic)
-
-    async def handle_set_led_strip(call: ServiceCall) -> None:
-        """Handle the set LED strip service."""
-        if not any(
-            field in call.data
-            for field in (
-                ATTR_ON,
-                ATTR_BRIGHTNESS,
-                ATTR_HORIZONTAL_COUNT,
-                ATTR_VERTICAL_COUNT,
-            )
-        ):
-            raise HomeAssistantError("At least one LED strip field is required")
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> None:
-            _ensure_pro(coordinator, SERVICE_SET_LED_STRIP)
+            coordinator = _resolve_target_coordinator(hass, call)
+            host = coordinator.config_entry.data.get(CONF_HOST, "<unknown>")
             try:
-                await async_set_led_strip(
-                    coordinator,
-                    on=call.data.get(ATTR_ON),
-                    brightness=call.data.get(ATTR_BRIGHTNESS),
-                    horizontal_count=call.data.get(ATTR_HORIZONTAL_COUNT),
-                    vertical_count=call.data.get(ATTR_VERTICAL_COUNT),
+                async with coordinator.async_client() as client:
+                    if service.pro_only:
+                        _ensure_pro(coordinator, service.name)
+                    result = await service.call(coordinator, client, call)
+            except HomeAssistantError:
+                raise
+            except Exception as err:
+                _LOGGER.error(
+                    "Error executing %s service for %s: %s", service.name, host, err
                 )
-            except ValueError as err:
-                raise HomeAssistantError(str(err)) from err
-            _LOGGER.debug("LED strip settings updated on %s", host)
+                raise HomeAssistantError(
+                    f"Failed to execute {service.name} for {host}: {err}"
+                ) from err
 
-        await _execute_service(call, SERVICE_SET_LED_STRIP, service_logic)
-        await _resolve_target_coordinator(call).async_request_refresh()
+            _LOGGER.debug("Executed %s on %s", service.name, host)
+            if service.refresh:
+                await coordinator.async_request_refresh()
+            return result.model_dump(mode="json") if service.returns_response else None
 
-    async def handle_scan_wifi(call: ServiceCall) -> ServiceResponse:
-        """Handle the scan Wi-Fi response service."""
+        return handle
 
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> Any:
-            _ensure_pro(coordinator, SERVICE_SCAN_WIFI)
-            return await client.scan_wifi()
-
-        return await _execute_response_service(call, SERVICE_SCAN_WIFI, service_logic)
-
-    async def handle_list_images(call: ServiceCall) -> ServiceResponse:
-        """Handle the list images response service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> Any:
-            return await client.get_images()
-
-        return await _execute_response_service(call, SERVICE_LIST_IMAGES, service_logic)
-
-    async def handle_image_download_enabled(call: ServiceCall) -> ServiceResponse:
-        """Handle the image download enabled response service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> Any:
-            return await client.is_image_download_enabled()
-
-        return await _execute_response_service(
-            call,
-            SERVICE_IMAGE_DOWNLOAD_ENABLED,
-            service_logic,
+    for service in _SERVICES:
+        hass.services.async_register(
+            DOMAIN,
+            service.name,
+            make_handler(service),
+            schema=service.schema,
+            supports_response=(
+                SupportsResponse.ONLY
+                if service.returns_response
+                else SupportsResponse.NONE
+            ),
         )
 
-    async def handle_get_image_download_status(
-        call: ServiceCall,
-    ) -> ServiceResponse:
-        """Handle the image download status response service."""
 
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> Any:
-            return await client.get_image_download_status()
-
-        return await _execute_response_service(
-            call,
-            SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
-            service_logic,
-        )
-
-    async def handle_list_custom_edids(call: ServiceCall) -> ServiceResponse:
-        """Handle the list custom EDIDs response service."""
-
-        async def service_logic(
-            coordinator: NanoKVMDataUpdateCoordinator,
-            client: NanoKVMClient,
-            host: str,
-        ) -> Any:
-            _ensure_pro(coordinator, SERVICE_LIST_CUSTOM_EDIDS)
-            return await client.get_custom_edid_list()
-
-        return await _execute_response_service(
-            call,
-            SERVICE_LIST_CUSTOM_EDIDS,
-            service_logic,
-        )
-
-    hass.services.async_register(
-        DOMAIN, SERVICE_PUSH_BUTTON, handle_push_button, schema=PUSH_BUTTON_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_PASTE_TEXT, handle_paste_text, schema=PASTE_TEXT_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_REBOOT, handle_reboot, schema=HOST_ONLY_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_RESET_HDMI, handle_reset_hdmi, schema=HOST_ONLY_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_RESET_HID, handle_reset_hid, schema=HOST_ONLY_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_WAKE_ON_LAN, handle_wake_on_lan, schema=WAKE_ON_LAN_SCHEMA
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_MOUSE_JIGGLER,
-        handle_set_mouse_jiggler,
-        schema=SET_MOUSE_JIGGLER_SCHEMA,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_LED_STRIP,
-        handle_set_led_strip,
-        schema=SET_LED_STRIP_SCHEMA,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SCAN_WIFI,
-        handle_scan_wifi,
-        schema=HOST_ONLY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LIST_IMAGES,
-        handle_list_images,
-        schema=HOST_ONLY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_IMAGE_DOWNLOAD_ENABLED,
-        handle_image_download_enabled,
-        schema=HOST_ONLY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
-        handle_get_image_download_status,
-        schema=HOST_ONLY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LIST_CUSTOM_EDIDS,
-        handle_list_custom_edids,
-        schema=HOST_ONLY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
-    )
 def async_unregister_services(hass: HomeAssistant) -> None:
     """Unregister integration services."""
-    for service_name in _SERVICE_NAMES:
-        if hass.services.has_service(DOMAIN, service_name):
-            hass.services.async_remove(DOMAIN, service_name)
+    for service in _SERVICES:
+        if hass.services.has_service(DOMAIN, service.name):
+            hass.services.async_remove(DOMAIN, service.name)

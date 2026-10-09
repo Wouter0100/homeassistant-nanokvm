@@ -14,11 +14,6 @@ from nanokvm.models import GpioType, HWVersion
 
 from .const import (
     DOMAIN,
-    ICON_CLOCK,
-    ICON_HID,
-    ICON_KVM,
-    ICON_POWER,
-    ICON_RESET,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
 from .entity import NanoKVMEntity
@@ -28,7 +23,7 @@ from .entity import NanoKVMEntity
 class NanoKVMButtonEntityDescription(ButtonEntityDescription):
     """Describes NanoKVM button entity."""
 
-    press_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[None]] | None = None
+    press_fn: Callable[[NanoKVMDataUpdateCoordinator], Awaitable[None]]
     available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
 
 
@@ -48,47 +43,35 @@ def _is_pro_hardware(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 BUTTONS: tuple[NanoKVMButtonEntityDescription, ...] = (
     NanoKVMButtonEntityDescription(
         key="power",
-        name="Power Button",
         translation_key="power",
-        icon=ICON_POWER,
         press_fn=lambda coordinator: coordinator.client.push_button(GpioType.POWER, 100),
     ),
     NanoKVMButtonEntityDescription(
         key="reset",
-        name="Reset Button",
         translation_key="reset",
-        icon=ICON_RESET,
         press_fn=lambda coordinator: coordinator.client.push_button(GpioType.RESET, 100),
     ),
     NanoKVMButtonEntityDescription(
         key="reboot",
-        name="Reboot System",
         translation_key="reboot",
-        icon=ICON_RESET,
         press_fn=lambda coordinator: coordinator.client.reboot_system(),
     ),
     NanoKVMButtonEntityDescription(
         key="reset_hdmi",
-        name="Reset HDMI",
         translation_key="reset_hdmi",
-        icon=ICON_KVM,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hdmi(),
         available_fn=_is_pcie_hardware,
     ),
     NanoKVMButtonEntityDescription(
         key="reset_hid",
-        name="Reset HID",
         translation_key="reset_hid",
-        icon=ICON_HID,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.reset_hid(),
     ),
     NanoKVMButtonEntityDescription(
         key="sync_time",
-        name="Sync Time",
         translation_key="sync_time",
-        icon=ICON_CLOCK,
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.client.sync_time(),
         available_fn=_is_pro_hardware,
@@ -133,8 +116,6 @@ class NanoKVMButton(NanoKVMEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Press the button."""
-        if self.entity_description.press_fn is None:
-            raise RuntimeError(f"Missing press handler for button: {self.entity_description.key}")
         async with self._async_device_action():
             await self.entity_description.press_fn(self.coordinator)
         await self.coordinator.async_request_refresh()

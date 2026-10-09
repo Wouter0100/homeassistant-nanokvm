@@ -158,6 +158,7 @@ def test_constructor_configures_the_library_ssh_client(
     client_factory.assert_called_once_with(
         host="nanokvm.local",
         username="operator",
+        known_hosts=None,
         allow_unknown_host_key=False,
     )
     assert collector._client is client

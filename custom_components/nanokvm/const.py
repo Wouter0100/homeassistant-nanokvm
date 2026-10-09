@@ -4,10 +4,8 @@ DOMAIN = "nanokvm"
 INTEGRATION_TITLE = "NanoKVM"
 
 # Configuration
-CONF_HOST = "host"
 CONF_PREFERRED_HOST = "preferred_host"
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
+CONF_LED_BRIGHTNESS = "led_brightness"
 CONF_USE_STATIC_HOST = "use_static_host"
 CONF_SSL_FINGERPRINT = "ssl_fingerprint"
 CONF_SSH_HOST_KEY = "ssh_host_key"
@@ -55,25 +53,6 @@ BUTTON_TYPE_RESET = "reset"
 # Entity categories
 ENTITY_CATEGORY_CONFIG = "config"
 ENTITY_CATEGORY_DIAGNOSTIC = "diagnostic"
-
-# Icons
-ICON_KVM = "mdi:keyboard-variant"
-ICON_POWER = "mdi:power"
-ICON_RESET = "mdi:restart"
-ICON_HID = "mdi:keyboard"
-ICON_NETWORK = "mdi:ethernet"
-ICON_DISK = "mdi:harddisk"
-ICON_SSH = "mdi:console"
-ICON_MDNS = "mdi:dns"
-ICON_OLED = "mdi:monitor-small"
-ICON_WIFI = "mdi:wifi"
-ICON_IMAGE = "mdi:disc"
-ICON_CDROM = "mdi:disc"
-ICON_MOUSE_JIGGLER = "mdi:mouse"
-ICON_HDMI = "mdi:video-input-hdmi"
-ICON_WATCHDOG = "mdi:shield-refresh"
-ICON_LED_STRIP = "mdi:led-strip-variant"
-ICON_CLOCK = "mdi:clock-outline"
 
 # Signals
 SIGNAL_NEW_SSH_SENSORS = "nanokvm_new_ssh_sensors_{}"

@@ -345,35 +345,6 @@ def test_flow_initial_state_and_fingerprint_formatting(flow: NanoKVMConfigFlow) 
     assert flow._format_fingerprint("AABB01") == "AA:BB:01"
 
 
-def test_get_reauth_entry_returns_context_entry(
-    flow: NanoKVMConfigFlow,
-    config_entry_mock: MagicMock,
-) -> None:
-    """Reauth resolves its entry through the context entry ID."""
-    flow.context = {"source": "reauth", "entry_id": config_entry_mock.entry_id}
-    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
-
-    assert flow._get_reauth_entry() is config_entry_mock
-
-
-def test_get_reauth_entry_rejects_missing_entry(flow: NanoKVMConfigFlow) -> None:
-    """A stale reauth context fails explicitly instead of using missing data."""
-    flow.context = {"source": "reauth", "entry_id": "missing"}
-    flow.hass.config_entries.async_get_entry.return_value = None
-
-    with pytest.raises(RuntimeError, match="missing NanoKVM entry"):
-        flow._get_reauth_entry()
-
-
-def test_get_reconfigure_entry_rejects_missing_entry(flow: NanoKVMConfigFlow) -> None:
-    """A stale reconfigure context fails explicitly."""
-    flow.context = {"source": "reconfigure", "entry_id": "missing"}
-    flow.hass.config_entries.async_get_entry.return_value = None
-
-    with pytest.raises(RuntimeError, match="missing NanoKVM entry"):
-        flow._get_reconfigure_entry()
-
-
 def test_find_matching_entry_returns_first_match_or_none(
     flow: NanoKVMConfigFlow,
 ) -> None:
@@ -1084,7 +1055,7 @@ async def test_reconfigure_step_replaces_ssh_host_key(
 ) -> None:
     """Reconfigure exposes a new fingerprint and persists it after trust."""
     flow.context = {"source": "reconfigure", "entry_id": config_entry_mock.entry_id}
-    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
+    flow.hass.config_entries.async_get_known_entry.return_value = config_entry_mock
     monkeypatch.setattr(
         config_flow_module,
         "async_prepare_ssh_host_key",
@@ -1119,7 +1090,7 @@ async def test_reconfigure_aborts_when_ssh_host_key_probe_fails(
 ) -> None:
     """Reconfiguration stops without replacing trust if the key probe fails."""
     flow.context = {"source": "reconfigure", "entry_id": config_entry_mock.entry_id}
-    flow.hass.config_entries.async_get_entry.return_value = config_entry_mock
+    flow.hass.config_entries.async_get_known_entry.return_value = config_entry_mock
     monkeypatch.setattr(
         config_flow_module,
         "async_prepare_ssh_host_key",
@@ -1248,7 +1219,7 @@ def _prepare_reauth(
     """Attach a config entry to a flow's reauthentication context."""
     entry.title = "NanoKVM"
     flow.context = {"source": "reauth", "entry_id": entry.entry_id}
-    flow.hass.config_entries.async_get_entry.return_value = entry
+    flow.hass.config_entries.async_get_known_entry.return_value = entry
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
+from homeassistant.const import CONF_HOST
 from homeassistant.core import ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from nanokvm.models import (
@@ -38,7 +39,6 @@ from custom_components.nanokvm.const import (
     ATTR_VERTICAL_COUNT,
     BUTTON_TYPE_POWER,
     BUTTON_TYPE_RESET,
-    CONF_HOST,
     DOMAIN,
     SERVICE_GET_IMAGE_DOWNLOAD_STATUS,
     SERVICE_IMAGE_DOWNLOAD_ENABLED,
@@ -63,19 +63,6 @@ class RegisteredService:
     handler: Callable[[ServiceCall], Awaitable[Any]]
     schema: vol.Schema
     supports_response: SupportsResponse
-
-
-class ModelResponse:
-    """Minimal model-dump boundary used by response normalization tests."""
-
-    def __init__(self, response: dict[str, Any]) -> None:
-        self.response = response
-        self.mode: str | None = None
-
-    def model_dump(self, *, mode: str) -> dict[str, Any]:
-        """Record the requested serialization mode and return JSON-ready data."""
-        self.mode = mode
-        return self.response
 
 
 def _client() -> SimpleNamespace:
@@ -200,27 +187,6 @@ async def _call_service(
     return await service.handler(service_call)
 
 
-def test_model_to_response_serializes_models_in_json_mode() -> None:
-    """Model responses must request JSON-safe values for Home Assistant."""
-    model = ModelResponse({"status": "ready"})
-
-    assert services_module._model_to_response(model) == {"status": "ready"}
-    assert model.mode == "json"
-
-
-def test_model_to_response_preserves_mapping_responses() -> None:
-    """Already-normalized mapping responses must be returned unchanged."""
-    response = {"items": ["one", "two"]}
-
-    assert services_module._model_to_response(response) is response
-
-
-@pytest.mark.parametrize("value", [None, True, "ready", ["one"]])
-def test_model_to_response_wraps_non_mapping_values(value: object) -> None:
-    """Scalar and sequence responses must receive a stable response key."""
-    assert services_module._model_to_response(value) == {"value": value}
-
-
 def test_pro_gate_accepts_pro_hardware() -> None:
     """Pro services must accept coordinators reporting Pro hardware."""
     services_module._ensure_pro(
@@ -288,7 +254,9 @@ def test_register_services_registers_complete_surface_with_response_contracts(
     """Registration must expose every implementation service exactly once."""
     registered = _capture_registered_services(hass_mock)
 
-    assert tuple(registered) == services_module._SERVICE_NAMES
+    assert tuple(registered) == tuple(
+        service.name for service in services_module._SERVICES
+    )
     assert {
         name
         for name, service in registered.items()
@@ -597,6 +565,7 @@ async def test_mouse_jiggler_maps_mode_enum(
     coordinator.client.set_mouse_jiggler_state.assert_awaited_once_with(
         False, expected_mode
     )
+    coordinator.async_request_refresh.assert_awaited_once_with()
 
 
 async def test_led_strip_requires_at_least_one_update_field(
@@ -880,7 +849,7 @@ def test_unregister_services_removes_only_registered_services(
 
     assert registry.async_remove.call_args_list == [
         call(DOMAIN, service_name)
-        for service_name in services_module._SERVICE_NAMES
+        for service_name in (service.name for service in services_module._SERVICES)
         if service_name in registered_names
     ]
 

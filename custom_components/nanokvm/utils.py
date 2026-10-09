@@ -38,88 +38,6 @@ def _api_base_url(origin: URL, scheme: str) -> str:
     return str(origin.with_scheme(scheme).with_path(_normalize_api_path(origin.path)))
 
 
-def _web_ui_path(path: str) -> str:
-    """Convert an API base path into the corresponding web UI path."""
-    normalized_path = path.rstrip("/")
-    if normalized_path.endswith("/api"):
-        normalized_path = normalized_path[:-4]
-    return f"{normalized_path}/" if normalized_path else "/"
-
-
-def _ssh_host(origin: URL) -> str:
-    """Return the hostname to use for SSH connections."""
-    host = origin.host or origin.raw_host
-    if host is None:
-        raise ValueError(f"Invalid NanoKVM host value: {origin}")
-    return host
-
-
-@dataclass(frozen=True, slots=True)
-class NanoKVMConnectionTarget:
-    """Parsed connection target derived from a configured host value."""
-
-    origin: URL
-    has_explicit_scheme: bool
-
-    @classmethod
-    def from_host(cls, host: str) -> NanoKVMConnectionTarget:
-        """Parse the stored host value into a reusable connection target."""
-        origin, has_explicit_scheme = _parse_host(host)
-        return cls(origin=origin, has_explicit_scheme=has_explicit_scheme)
-
-    @property
-    def ssh_host(self) -> str:
-        """Return the hostname to use for SSH connections."""
-        return _ssh_host(self.origin)
-
-    @property
-    def match_key(self) -> tuple[str, int | None, str]:
-        """Return a normalized key for matching configured devices."""
-        return (
-            self.ssh_host,
-            self.origin.explicit_port,
-            _normalize_api_path(self.origin.path),
-        )
-
-    def api_connection_options(
-        self,
-        ssl_fingerprint: str | None = None,
-        *,
-        preferred_url: str | None = None,
-    ) -> tuple[NanoKVMAPIConnectionOption, ...]:
-        """Return candidate API connection options for this target."""
-        schemes = (
-            (self.origin.scheme,) if self.has_explicit_scheme else ("http", "https")
-        )
-        options = [
-            NanoKVMAPIConnectionOption(
-                base_url=_api_base_url(self.origin, scheme),
-                scheme=scheme,
-                ssl_fingerprint=ssl_fingerprint if scheme == "https" else None,
-            )
-            for scheme in schemes
-        ]
-        if preferred_url is None:
-            return tuple(options)
-
-        preferred = [option for option in options if option.base_url == preferred_url]
-        if not preferred:
-            return tuple(options)
-
-        remaining = [option for option in options if option.base_url != preferred_url]
-        return tuple(preferred + remaining)
-
-    @property
-    def https_probe_url(self) -> str:
-        """Return the HTTPS API base URL for certificate fingerprint probing."""
-        return _api_base_url(self.origin, "https")
-
-    def verification_url(self, default_scheme: str = "https") -> str:
-        """Return the API base URL for verifying the device behind this target."""
-        scheme = self.origin.scheme if self.has_explicit_scheme else default_scheme
-        return _api_base_url(self.origin, scheme)
-
-
 def api_connection_options(
     host: str,
     ssl_fingerprint: str | None = None,
@@ -127,38 +45,47 @@ def api_connection_options(
     preferred_url: str | None = None,
 ) -> tuple[NanoKVMAPIConnectionOption, ...]:
     """Return candidate API connection options for a configured host."""
-    return NanoKVMConnectionTarget.from_host(host).api_connection_options(
-        ssl_fingerprint=ssl_fingerprint,
-        preferred_url=preferred_url,
-    )
+    origin, has_explicit_scheme = _parse_host(host)
+    options = [
+        NanoKVMAPIConnectionOption(
+            base_url=_api_base_url(origin, scheme),
+            scheme=scheme,
+            ssl_fingerprint=ssl_fingerprint if scheme == "https" else None,
+        )
+        for scheme in ((origin.scheme,) if has_explicit_scheme else ("http", "https"))
+    ]
+    # A stable sort moves the preferred URL first and keeps the rest in order.
+    return tuple(sorted(options, key=lambda option: option.base_url != preferred_url))
 
 
 def https_probe_url(host: str) -> str:
     """Return the HTTPS API base URL for certificate fingerprint probing."""
-    return NanoKVMConnectionTarget.from_host(host).https_probe_url
+    return _api_base_url(_parse_host(host)[0], "https")
 
 
 def verification_url(host: str, default_scheme: str = "https") -> str:
     """Return the API base URL for verifying a host, keeping an explicit scheme."""
-    return NanoKVMConnectionTarget.from_host(host).verification_url(default_scheme)
+    origin, has_explicit_scheme = _parse_host(host)
+    return _api_base_url(
+        origin, origin.scheme if has_explicit_scheme else default_scheme
+    )
 
 
 def api_base_url_to_web_url(base_url: str) -> str:
     """Convert a NanoKVM API base URL into the corresponding web UI URL."""
     parsed_url = URL(base_url).with_query(None).with_fragment(None)
-    return str(parsed_url.with_path(_web_ui_path(parsed_url.path)))
-
-
-def normalize_host(host: str, ssl_fingerprint: str | None = None) -> str:
-    """Return the first candidate API base URL for a configured host."""
-    return NanoKVMConnectionTarget.from_host(host).api_connection_options(
-        ssl_fingerprint=ssl_fingerprint,
-    )[0].base_url
+    web_path = parsed_url.path.rstrip("/").removesuffix("/api")
+    return str(parsed_url.with_path(f"{web_path}/"))
 
 
 def device_sw_version(application: str, image: str | None) -> str:
     """Return the software version shown for a NanoKVM device."""
     return f"{application} (Image: {image})" if image else application
+
+
+def normalize_host(host: str, ssl_fingerprint: str | None = None) -> str:
+    """Return the first candidate API base URL for a configured host."""
+    return api_connection_options(host, ssl_fingerprint)[0].base_url
 
 
 def normalize_mdns(mdns: str) -> str:
@@ -168,9 +95,18 @@ def normalize_mdns(mdns: str) -> str:
 
 def extract_ssh_host(host: str) -> str:
     """Extract SSH host value from integration host configuration."""
-    return NanoKVMConnectionTarget.from_host(host).ssh_host
+    origin = _parse_host(host)[0]
+    ssh_host = origin.host or origin.raw_host
+    if ssh_host is None:
+        raise ValueError(f"Invalid NanoKVM host value: {origin}")
+    return ssh_host
 
 
 def host_match_key(host: str) -> tuple[str, int | None, str]:
     """Return a normalized key for matching a host to a config entry."""
-    return NanoKVMConnectionTarget.from_host(host).match_key
+    origin = _parse_host(host)[0]
+    return (
+        extract_ssh_host(host),
+        origin.explicit_port,
+        _normalize_api_path(origin.path),
+    )

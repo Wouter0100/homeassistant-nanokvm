@@ -8,12 +8,7 @@ from types import SimpleNamespace
 from homeassistant.components.update import UpdateDeviceClass, UpdateEntityFeature
 import pytest
 
-from custom_components.nanokvm.update import (
-    UPDATES,
-    NanoKVMUpdate,
-    NanoKVMUpdateEntityDescription,
-    _normalize_version,
-)
+from custom_components.nanokvm.update import NanoKVMUpdate, _normalize_version
 
 
 @pytest.mark.parametrize(
@@ -35,15 +30,11 @@ def test_normalize_version_strips_values_and_rejects_empty_strings(
 
 def test_update_description_exposes_stable_metadata() -> None:
     """The application updater must retain its entity-registry metadata."""
-    assert len(UPDATES) == 1
-    description = UPDATES[0]
+    description = NanoKVMUpdate.entity_description
 
     assert description.key == "application"
-    assert description.name == "Application"
     assert description.translation_key == "application"
-    assert description.icon == "mdi:update"
     assert description.device_class == UpdateDeviceClass.FIRMWARE
-    assert description.available_fn(SimpleNamespace())
 
 
 def _update_entity(
@@ -54,7 +45,6 @@ def _update_entity(
     latest: str | None = "1.1.0",
     version_info_available: bool = True,
     last_update_success: bool = True,
-    description_available: bool = True,
 ) -> NanoKVMUpdate:
     """Build an update entity from simple coordinator state."""
     version_info = (
@@ -70,11 +60,7 @@ def _update_entity(
         application_version_info=version_info,
         last_update_success=last_update_success,
     )
-    description = NanoKVMUpdateEntityDescription(
-        key="application",
-        available_fn=lambda _: description_available,
-    )
-    return NanoKVMUpdate(coordinator, description)
+    return NanoKVMUpdate(coordinator)
 
 
 def test_update_entity_exposes_platform_metadata(
@@ -165,21 +151,18 @@ def test_latest_version_uses_installed_fallback_without_version_info(
 @pytest.mark.parametrize(
     (
         "last_update_success",
-        "description_available",
         "version_info_available",
         "expected",
     ),
     [
-        (True, True, True, True),
-        (False, True, True, False),
-        (True, False, True, False),
-        (True, True, False, False),
+        (True, True, True),
+        (False, True, False),
+        (True, False, False),
     ],
 )
 def test_update_availability_requires_health_feature_and_version_info(
     coordinator_state_factory: Callable[..., SimpleNamespace],
     last_update_success: bool,
-    description_available: bool,
     version_info_available: bool,
     expected: bool,
 ) -> None:
@@ -187,7 +170,6 @@ def test_update_availability_requires_health_feature_and_version_info(
     entity = _update_entity(
         coordinator_state_factory,
         last_update_success=last_update_success,
-        description_available=description_available,
         version_info_available=version_info_available,
     )
 

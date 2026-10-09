@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 
 import aiohttp
 from aiohttp import BodyPartReader, MultipartReader
@@ -20,7 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from webrtc_models import RTCIceCandidateInit
 
 from .coordinator import NanoKVMDataUpdateCoordinator
-from .const import DOMAIN, ICON_HDMI
+from .const import DOMAIN
 from .entity import NanoKVMEntity
 from .media.client import NanoKVMStreamClientProvider
 from .media.signaling import NanoKVMWebRTCManager
@@ -33,23 +31,6 @@ MAX_PENDING_ICE_CANDIDATES = 64
 SNAPSHOT_TIMEOUT_SECONDS = 20
 
 
-@dataclass(frozen=True, kw_only=True)
-class NanoKVMCameraEntityDescription(CameraEntityDescription):
-    """Describes NanoKVM camera entity."""
-
-    available_fn: Callable[[NanoKVMDataUpdateCoordinator], bool] = lambda _: True
-
-
-CAMERAS: tuple[NanoKVMCameraEntityDescription, ...] = (
-    NanoKVMCameraEntityDescription(
-        key="hdmi",
-        name="HDMI Stream",
-        translation_key="hdmi",
-        icon=ICON_HDMI,
-    ),
-)
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -58,32 +39,20 @@ async def async_setup_entry(
     """Set up NanoKVM camera based on a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    async_add_entities(
-        NanoKVMCamera(
-            coordinator=coordinator,
-            description=description,
-        )
-        for description in CAMERAS
-        if description.available_fn(coordinator)
-    )
+    async_add_entities([NanoKVMCamera(coordinator)])
 
 
 class NanoKVMCamera(NanoKVMEntity, Camera):
     """Defines a NanoKVM camera."""
 
-    entity_description: NanoKVMCameraEntityDescription
+    entity_description = CameraEntityDescription(
+        key="hdmi",
+        translation_key="hdmi",
+    )
 
-    def __init__(
-        self,
-        coordinator: NanoKVMDataUpdateCoordinator,
-        description: NanoKVMCameraEntityDescription,
-    ) -> None:
+    def __init__(self, coordinator: NanoKVMDataUpdateCoordinator) -> None:
         """Initialize NanoKVM camera."""
-        self.entity_description = description
-        super().__init__(
-            coordinator=coordinator,
-            unique_id_suffix=f"camera_{description.key}",
-        )
+        super().__init__(coordinator=coordinator, unique_id_suffix="camera_hdmi")
         Camera.__init__(self)
         self._attr_supported_features = CameraEntityFeature.STREAM
         self._attr_is_streaming = False
@@ -116,9 +85,6 @@ class NanoKVMCamera(NanoKVMEntity, Camera):
             return None
 
         client = self._client_provider.create_client()
-        if client is None:
-            return None
-
         async with client:
             await self._client_provider.async_authenticate(client)
             # Reuse NanoKVMClient's authenticated session and SSL config for MJPEG.

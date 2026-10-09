@@ -20,14 +20,6 @@ from nanokvm.models import GpioType, VirtualDevice
 
 from .const import (
     DOMAIN,
-    ICON_DISK,
-    ICON_HDMI,
-    ICON_LED_STRIP,
-    ICON_MDNS,
-    ICON_NETWORK,
-    ICON_SSH,
-    ICON_POWER,
-    ICON_WATCHDOG,
     SIGNAL_NEW_SSH_SWITCHES,
 )
 from .coordinator import NanoKVMDataUpdateCoordinator
@@ -72,7 +64,7 @@ def _watchdog_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
 
 def _non_pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
     """Return whether the non-Pro virtual-device switches apply to this device."""
-    return coordinator.supports_non_pro_virtual_device_controls
+    return coordinator.is_non_pro_hardware
 
 
 def _pro_virtual_device_available(coordinator: NanoKVMDataUpdateCoordinator) -> bool:
@@ -127,9 +119,7 @@ async def _set_led_strip_on(
 SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     NanoKVMSwitchEntityDescription(
         key="ssh",
-        name="SSH",
         translation_key="ssh",
-        icon=ICON_SSH,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.ssh_state and coordinator.ssh_state.enabled
@@ -139,9 +129,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="mdns",
-        name="mDNS",
         translation_key="mdns",
-        icon=ICON_MDNS,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.mdns_state and coordinator.mdns_state.enabled
@@ -151,9 +139,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="virtual_network",
-        name="Virtual Network",
         translation_key="virtual_network",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
@@ -163,9 +149,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="virtual_disk",
-        name="Virtual Disk",
         translation_key="virtual_disk",
-        icon=ICON_DISK,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.disk
@@ -175,9 +159,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="virtual_network",
-        name="Virtual Network",
         translation_key="virtual_network",
-        icon=ICON_NETWORK,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.network
@@ -187,9 +169,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="virtual_mic",
-        name="Virtual Microphone",
         translation_key="virtual_mic",
-        icon="mdi:microphone",
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.virtual_device_info and coordinator.virtual_device_info.mic
@@ -199,9 +179,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="power",
-        name="Power",
         translation_key="power",
-        icon=ICON_POWER,
         value_fn=lambda coordinator: bool(
             coordinator.gpio_info and coordinator.gpio_info.pwr
         ),
@@ -210,9 +188,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="hdmi",
-        name="HDMI Output",
         translation_key="hdmi",
-        icon=ICON_HDMI,
         entity_category=EntityCategory.CONFIG,
         value_fn=_hdmi_value,
         turn_on_fn=lambda coordinator: coordinator.client.enable_hdmi(),
@@ -221,9 +197,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="hdmi_capture",
-        name="HDMI Capture",
         translation_key="hdmi_capture",
-        icon=ICON_HDMI,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.hdmi_capture and coordinator.hdmi_capture.enabled
@@ -234,9 +208,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="hdmi_passthrough",
-        name="HDMI Passthrough",
         translation_key="hdmi_passthrough",
-        icon=ICON_HDMI,
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.hdmi_passthrough and coordinator.hdmi_passthrough.enabled
@@ -247,9 +219,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="low_power",
-        name="Low Power",
         translation_key="low_power",
-        icon="mdi:power-sleep",
         entity_category=EntityCategory.CONFIG,
         value_fn=lambda coordinator: bool(
             coordinator.low_power and coordinator.low_power.enabled
@@ -260,9 +230,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     ),
     NanoKVMSwitchEntityDescription(
         key="led_strip",
-        name="LED Strip",
         translation_key="led_strip",
-        icon=ICON_LED_STRIP,
         entity_category=EntityCategory.CONFIG,
         value_fn=_led_strip_value,
         turn_on_fn=lambda coordinator: _set_led_strip_on(coordinator, True),
@@ -274,9 +242,7 @@ SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
 SSH_SWITCHES: tuple[NanoKVMSwitchEntityDescription, ...] = (
     NanoKVMSwitchEntityDescription(
         key="watchdog",
-        name="Watchdog",
         translation_key="watchdog",
-        icon=ICON_WATCHDOG,
         entity_category=EntityCategory.CONFIG,
         value_fn=_watchdog_value,
         available_fn=_watchdog_available,
@@ -323,15 +289,9 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    ssh_entities_added = False
-
     @callback
     def async_add_ssh_switches() -> None:
         """Add SSH-backed switches when they become available."""
-        nonlocal ssh_entities_added
-        if ssh_entities_added:
-            return
-
         entities = [
             NanoKVMWatchdogSwitch(
                 coordinator=coordinator,
@@ -344,7 +304,6 @@ async def async_setup_entry(
             return
 
         async_add_entities(entities)
-        ssh_entities_added = True
         coordinator.ssh_switches_created = True
 
     if any(description.available_fn(coordinator) for description in SSH_SWITCHES):

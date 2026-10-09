@@ -83,7 +83,10 @@ The integration follows the standard structure for a Home Assistant
 - **`led.py`**: Shared NanoKVM Pro LED strip validation and config helpers.
   - Enforces LED brightness and bead-count constraints for entities/services.
   - `async_set_led_strip` is the single write path. It remembers the requested
-    brightness, because the Pro can report a lower value than it stores.
+    brightness, because the Pro can report a lower value than it stores; the
+    coordinator saves it in the config entry so it survives a restart.
+  - Rejects brightness and bead-count changes while the strip is off, because
+    the Pro ignores them.
 
 - **`manifest.json`**: Integration metadata.
   - Domain, name, version, dependencies (including `zeroconf`).
@@ -112,6 +115,8 @@ Each platform follows a similar pattern:
 1. **Entity descriptions**:
    A tuple of dataclass instances (for example,
    `NanoKVMSwitchEntityDescription`) declaratively defines entities.
+   Names come from `translations/*.json` and icons from `icons.json`, both
+   keyed by `translation_key`; descriptions set neither inline.
 2. **`value_fn`**:
    The description includes a lambda/function that reads entity state from
    coordinator data.
@@ -171,6 +176,7 @@ Run these checks locally before pushing:
 3. Validate JSON metadata, strings, and translations:
    - `python -m json.tool hacs.json`
    - `python -m json.tool custom_components/nanokvm/manifest.json`
+   - `python -m json.tool custom_components/nanokvm/icons.json`
    - `python -m json.tool custom_components/nanokvm/strings.json`
    - `python -m json.tool custom_components/nanokvm/translations/en.json`
    - `python -m json.tool custom_components/nanokvm/translations/fr.json`

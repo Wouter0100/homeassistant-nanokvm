@@ -58,9 +58,8 @@ def _coordinator(**overrides: object) -> SimpleNamespace:
         "ssh_state": SimpleNamespace(enabled=False),
         "ssh_switches_created": False,
         "static_ip": None,
-        "supports_cdrom_endpoint": False,
+        "is_non_pro_hardware": False,
         "supports_hdmi_endpoint": False,
-        "supports_non_pro_virtual_device_controls": False,
         "supports_watchdog": False,
         "swap_size": None,
         "tailscale_status": None,
@@ -109,7 +108,7 @@ def _capture_dispatchers(
 
 
 @pytest.mark.asyncio
-async def test_binary_sensor_setup_adds_dynamic_media_and_network_entities_once(
+async def test_binary_sensor_setup_adds_dynamic_media_and_network_entities(
     hass_mock: MagicMock,
     config_entry_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -137,8 +136,7 @@ async def test_binary_sensor_setup_adds_dynamic_media_and_network_entities_once(
     assert len(batches) == 1
 
     coordinator.mounted_image = SimpleNamespace(file="/data/image.iso")
-    coordinator.supports_cdrom_endpoint = True
-    callbacks[media_signal]()
+    coordinator.is_non_pro_hardware = True
     callbacks[media_signal]()
     assert [entity.entity_description.key for entity in batches[1]] == ["cdrom_mode"]
 
@@ -162,7 +160,7 @@ async def test_binary_sensor_setup_handles_media_already_mounted(
     """Mounted media present during setup must create its entity immediately."""
     coordinator = _coordinator(
         mounted_image=SimpleNamespace(file="/data/image.iso"),
-        supports_cdrom_endpoint=True,
+        is_non_pro_hardware=True,
     )
     _configure_hass(hass_mock, config_entry_mock, coordinator)
     add_entities, batches = _entity_collector()
@@ -176,7 +174,7 @@ async def test_binary_sensor_setup_handles_media_already_mounted(
 
 
 @pytest.mark.asyncio
-async def test_sensor_setup_adds_dynamic_network_media_and_ssh_entities_once(
+async def test_sensor_setup_adds_dynamic_network_media_and_ssh_entities(
     hass_mock: MagicMock,
     config_entry_mock: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
@@ -214,10 +212,8 @@ async def test_sensor_setup_adds_dynamic_network_media_and_ssh_entities_once(
 
     coordinator.mounted_image = SimpleNamespace(file="/data/image.iso")
     callbacks[media_signal]()
-    callbacks[media_signal]()
     assert [entity.entity_description.key for entity in batches[2]] == ["mounted_image"]
 
-    callbacks[ssh_signal]()
     callbacks[ssh_signal]()
     assert [entity.entity_description.key for entity in batches[3]] == [
         "uptime",
@@ -354,7 +350,7 @@ async def test_switch_setup_uses_specialized_entities_and_dynamic_watchdog(
 ) -> None:
     """Switch setup must select specialized entity classes and add watchdog once."""
     coordinator = _coordinator(
-        supports_non_pro_virtual_device_controls=True,
+        is_non_pro_hardware=True,
         virtual_device_info=SimpleNamespace(network=False, disk=False, mic=None),
     )
     _configure_hass(hass_mock, config_entry_mock, coordinator)
@@ -381,7 +377,6 @@ async def test_switch_setup_uses_specialized_entities_and_dynamic_watchdog(
 
     coordinator.supports_watchdog = True
     coordinator.watchdog_enabled = False
-    callbacks[signal]()
     callbacks[signal]()
     assert [entity.entity_description.key for entity in batches[1]] == ["watchdog"]
     assert isinstance(batches[1][0], switch_module.NanoKVMWatchdogSwitch)

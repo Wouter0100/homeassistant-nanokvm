@@ -17,7 +17,6 @@ from custom_components.nanokvm.select import (
     OLED_SLEEP_OPTIONS,
     SELECTS,
     SWAP_OPTIONS,
-    NanoKVMSelectEntityDescription,
     _has_hid_mode,
     _has_lcd_time_format,
     _has_mouse_jiggler_state,
@@ -295,19 +294,6 @@ def test_pro_disk_value_requires_mounted_available_media(
     coordinator = coordinator_state_factory(virtual_device_info=virtual_device_info)
 
     assert _pro_disk_value(coordinator) == expected
-
-
-def test_select_description_defaults_are_safe(
-    coordinator_state_factory: CoordinatorStateFactory,
-) -> None:
-    """An uncustomized select description has inert value/action defaults."""
-    description = NanoKVMSelectEntityDescription(key="test")
-    coordinator = coordinator_state_factory()
-
-    assert description.value_fn(coordinator) == ""
-    assert description.available_fn(coordinator) is True
-    assert description.options_fn is None
-    assert description.select_option_fn is None
 
 
 def test_select_description_keys_and_common_contract() -> None:
